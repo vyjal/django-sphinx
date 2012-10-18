@@ -710,6 +710,10 @@ class SphinxInstanceManager(object):
 
 class SphinxSearch(object):
     def __init__(self, index=None, using=None, **kwargs):
+        try:
+            self._options = kwargs.pop('options')
+        except:
+            self._options = None
         self._kwargs = kwargs
         self._sphinx = None
         self._index = index
@@ -738,6 +742,12 @@ class SphinxSearch(object):
             setattr(model, '__sphinx_indexes__', [self._index])
         else:
             model.__sphinx_indexes__.append(self._index)
+
+        # Add in metaoptions used when auto generating config
+        if getattr(model, '__sphinx_options__', None) is None:
+            setattr(model, '__sphinx_options__', self._options)
+        else:
+            model.__sphinx_options__.append(self._options)
         setattr(model, name, self._sphinx)
 
 class SphinxRelationProxy(SphinxProxy):

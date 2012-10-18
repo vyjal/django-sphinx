@@ -129,8 +129,18 @@ def generate_config_for_model(model_class, index=None, sphinx_params={}):
     return generate_source_for_model(model_class, index, sphinx_params) + "\n\n" + generate_index_for_model(model_class, index, sphinx_params)
 
 def generate_index_for_model(model_class, index=None, sphinx_params={}):
-    """Generates a source configmration for a model."""
-    t = _get_template('index.conf', index)
+    """
+    Generates an index configuration for a model. Respects template
+    overrides from the user for individual models. Any files in settings
+    that are specified in the format `sphinx/Mymodel.index` 
+    will be loaded instead of the default source.conf and index.conf boilerplate 
+    provided with django-sphinx. Remember, models must be registered with a 
+    SphinxSearch() manager to be recognized by django-sphinx.
+    """
+    try:
+        t = _get_template('%s_index.conf' % model_class.__name__, index)
+    except:
+        t = _get_template('index.conf', index)
     
     if index is None:
         index = model_class._meta.db_table
@@ -143,8 +153,18 @@ def generate_index_for_model(model_class, index=None, sphinx_params={}):
     return t.render(c)
 
 def generate_source_for_model(model_class, index=None, sphinx_params={}):
-    """Generates a source configmration for a model."""
-    t = _get_template('source.conf', index)
+    """
+    Generates a source configuration for a model. Respects template
+    overrides from the user for individual models. Any files in settings
+    that are specified in the format `sphinx/Mymodel.source` will be loaded 
+    instead of the default source.conf boilerplate provided with django-sphinx. 
+    Remember, models must be registered with a SphinxSearch() manager to be 
+    recognized by django-sphinx.
+    """
+    try:
+        t = _get_template('%s_source.conf' % model_class.__name__, index)
+    except:
+        t = _get_template('source.conf', index)
 
     def _the_tuple(f):
         return (f.__class__, f.column, getattr(f.rel, 'to', None), f.choices)
