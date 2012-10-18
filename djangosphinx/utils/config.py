@@ -174,22 +174,29 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
         return (f.__class__, f.column, getattr(f.rel, 'to', None), f.choices)
     
     model_fields = model_class._meta.fields
+    modified_fields = []
 
-    # For excluding fields from the generated config source for this model
     options = model_class.__sphinx_options__
+    
+    # Remove optionally excluded fields from indexing
     try:
         excluded_fields = options['excluded_fields']
-        import pdb; pdb.set_trace()
-        for e in excluded_fields:
-            for f in model_fields:
-                if f.name == e:
-                    model_fields.pop(model_fields.index(f))
+        [modified_fields.append(f) for f in model_fields if f.name not in excluded_fields]
     except:
         pass
-        
+    # Remove fields not specified as included
+    try:
+        included_fields = options['included_fields']
+        if 'id' not in included_fields:
+            included_fields.append('id')
+        [modified_fields.append(f) for f in model_fields if f.name in included_fields]
+    except:
+        pass
 
-
-    valid_fields = [_the_tuple(f) for f in model_fields if _is_sourcable_field(f)]
+    if len(modified_fields) > 0:
+        valid_fields = [_the_tuple(f) for f in modified_fields if _is_sourcable_field(f)]
+    else:
+        valid_fields = [_the_tuple(f) for f in model_fields if _is_sourcable_field(f)]
     
     table = model_class._meta.db_table
     
