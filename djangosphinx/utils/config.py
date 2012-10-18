@@ -226,7 +226,7 @@ def generate_config_for_models(model_classes, index=None, sphinx_params={}):
     return generate_source_for_models(model_classes, index, sphinx_params) + "\n\n" + generate_index_for_models(model_classes, index, sphinx_params)
 
 def generate_index_for_models(model_classes, index=None, sphinx_params={}):
-    """Generates a source configmration for a model."""
+    """Generates a source configuration for a model."""
     t = _get_template('index-multiple.conf', index)
     
     if index is None:
@@ -240,7 +240,7 @@ def generate_index_for_models(model_classes, index=None, sphinx_params={}):
     return t.render(c)
 
 def generate_source_for_models(model_classes, index=None, sphinx_params={}):
-    """Generates a source configmration for a model."""
+    """Generates a source configuration for a model."""
     t = _get_template('source-multiple.conf', index)
     
     # We need to loop through each model and find only the fields that exist *exactly* the
