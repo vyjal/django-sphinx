@@ -181,6 +181,8 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
     # Remove optionally excluded fields from indexing
     try:
         excluded_fields = options['excluded_fields']
+        if 'id' in excluded_fields:
+            excluded_fields.pop(excluded_fields.index('id'))
         [modified_fields.append(f) for f in model_fields if f.name not in excluded_fields]
     except:
         pass
