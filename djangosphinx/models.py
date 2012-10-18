@@ -710,6 +710,7 @@ class SphinxInstanceManager(object):
 
 class SphinxSearch(object):
     def __init__(self, index=None, using=None, **kwargs):
+        # Metadata for things like excluded_fields, included_fields, etc
         try:
             self._options = kwargs.pop('options')
         except:
@@ -717,6 +718,7 @@ class SphinxSearch(object):
         self._kwargs = kwargs
         self._sphinx = None
         self._index = index
+
         self.model = None
         self.using = using
     
@@ -748,6 +750,7 @@ class SphinxSearch(object):
             setattr(model, '__sphinx_options__', self._options)
         else:
             model.__sphinx_options__.append(self._options)
+            
         setattr(model, name, self._sphinx)
 
 class SphinxRelationProxy(SphinxProxy):

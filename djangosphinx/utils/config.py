@@ -119,6 +119,9 @@ def get_conf_context():
     params = DEFAULT_SPHINX_PARAMS
     return params
 
+def process_options_for_model(options=None):
+    pass
+
 # Generate for single models
 
 def generate_config_for_model(model_class, index=None, sphinx_params={}):
@@ -126,7 +129,8 @@ def generate_config_for_model(model_class, index=None, sphinx_params={}):
     Generates a sample configuration including an index and source for
     the given model which includes all attributes and date fields.
     """
-    return generate_source_for_model(model_class, index, sphinx_params) + "\n\n" + generate_index_for_model(model_class, index, sphinx_params)
+    return generate_source_for_model(model_class, index, sphinx_params) + "\n\n" + \
+    generate_index_for_model(model_class, index, sphinx_params)
 
 def generate_index_for_model(model_class, index=None, sphinx_params={}):
     """
@@ -168,9 +172,25 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
 
     def _the_tuple(f):
         return (f.__class__, f.column, getattr(f.rel, 'to', None), f.choices)
+    
+    model_fields = model_class._meta.fields
 
-    valid_fields = [_the_tuple(f) for f in model_class._meta.fields if _is_sourcable_field(f)]
+    # For excluding fields from the generated config source for this model
+    options = model_class.__sphinx_options__
+    try:
+        excluded_fields = options['excluded_fields']
+        import pdb; pdb.set_trace()
+        for e in excluded_fields:
+            for f in model_fields:
+                if f.name == e:
+                    model_fields.pop(model_fields.index(f))
+    except:
+        pass
+        
 
+
+    valid_fields = [_the_tuple(f) for f in model_fields if _is_sourcable_field(f)]
+    
     table = model_class._meta.db_table
     
     if index is None:
