@@ -205,26 +205,6 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
     model_fields = model_class._meta.fields
     options = model_class.__sphinx_options__
     modified_fields = _process_options_for_model_fields(options, model_fields)
-    # # Remove optionally excluded fields from indexing
-    # try:
-    #     excluded_fields = options['excluded_fields']
-    #     if 'id' in excluded_fields:
-    #         excluded_fields.pop(excluded_fields.index('id'))
-    #     [modified_fields.append(f) for f in model_fields if f.name not in excluded_fields]
-    # except:
-    #     pass
-    # # Remove fields not specified as included
-    # try:
-    #     included_fields = options['included_fields']
-    #     if 'id' not in included_fields:
-    #         included_fields.insert(0, 'id')
-    #     [modified_fields.append(f) for f in model_fields if f.name in included_fields]
-    # except:
-    #     pass
-    # # De-normalize specified related fields into this source
-    # try:
-    #     related_fields = options['related_fields']
-
 
     if len(modified_fields) > 0:
         valid_fields = [_the_tuple(f) for f in modified_fields if _is_sourcable_field(f)]
