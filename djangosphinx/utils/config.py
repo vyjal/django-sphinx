@@ -122,6 +122,35 @@ def get_conf_context():
 def process_options_for_model(options=None):
     pass
 
+def _process_options_for_model_fields(options, model_fields):
+    modified_fields = []
+    # Remove optionally excluded fields from indexing
+    try:
+        excluded_fields = options['excluded_fields']
+        if 'id' in excluded_fields:
+            excluded_fields.pop(excluded_fields.index('id'))
+        [modified_fields.append(f) for f in model_fields if f.name not in excluded_fields]
+    except:
+        pass
+    # Remove fields not specified as included
+    try:
+        included_fields = options['included_fields']
+        if 'id' not in included_fields:
+            included_fields.insert(0, 'id')
+        [modified_fields.append(f) for f in model_fields if f.name in included_fields]
+    except:
+        pass
+    # De-normalize specified related fields into this source
+    try:
+        related_fields = options['related_fields']
+    except:
+        pass
+
+    if len(modified_fields) > 0:
+        return modified_fields
+    else:
+        return []
+
 # Generate for single models
 
 def generate_config_for_model(model_class, index=None, sphinx_params={}):
@@ -174,26 +203,28 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
         return (f.__class__, f.column, getattr(f.rel, 'to', None), f.choices)
     
     model_fields = model_class._meta.fields
-    modified_fields = []
-
     options = model_class.__sphinx_options__
-    
-    # Remove optionally excluded fields from indexing
-    try:
-        excluded_fields = options['excluded_fields']
-        if 'id' in excluded_fields:
-            excluded_fields.pop(excluded_fields.index('id'))
-        [modified_fields.append(f) for f in model_fields if f.name not in excluded_fields]
-    except:
-        pass
-    # Remove fields not specified as included
-    try:
-        included_fields = options['included_fields']
-        if 'id' not in included_fields:
-            included_fields.insert(0, 'id')
-        [modified_fields.append(f) for f in model_fields if f.name in included_fields]
-    except:
-        pass
+    modified_fields = _process_options_for_model_fields(options, model_fields)
+    # # Remove optionally excluded fields from indexing
+    # try:
+    #     excluded_fields = options['excluded_fields']
+    #     if 'id' in excluded_fields:
+    #         excluded_fields.pop(excluded_fields.index('id'))
+    #     [modified_fields.append(f) for f in model_fields if f.name not in excluded_fields]
+    # except:
+    #     pass
+    # # Remove fields not specified as included
+    # try:
+    #     included_fields = options['included_fields']
+    #     if 'id' not in included_fields:
+    #         included_fields.insert(0, 'id')
+    #     [modified_fields.append(f) for f in model_fields if f.name in included_fields]
+    # except:
+    #     pass
+    # # De-normalize specified related fields into this source
+    # try:
+    #     related_fields = options['related_fields']
+
 
     if len(modified_fields) > 0:
         valid_fields = [_the_tuple(f) for f in modified_fields if _is_sourcable_field(f)]
@@ -215,6 +246,8 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
     c = Context(params)
     
     return t.render(c)
+
+
     
 # Generate for multiple models (search UNIONs)
 
@@ -226,7 +259,7 @@ def generate_config_for_models(model_classes, index=None, sphinx_params={}):
     return generate_source_for_models(model_classes, index, sphinx_params) + "\n\n" + generate_index_for_models(model_classes, index, sphinx_params)
 
 def generate_index_for_models(model_classes, index=None, sphinx_params={}):
-    """Generates a source configuration for a model."""
+    """Generates a source configmration for a model."""
     t = _get_template('index-multiple.conf', index)
     
     if index is None:
@@ -240,7 +273,7 @@ def generate_index_for_models(model_classes, index=None, sphinx_params={}):
     return t.render(c)
 
 def generate_source_for_models(model_classes, index=None, sphinx_params={}):
-    """Generates a source configuration for a model."""
+    """Generates a source configmration for a model."""
     t = _get_template('source-multiple.conf', index)
     
     # We need to loop through each model and find only the fields that exist *exactly* the
