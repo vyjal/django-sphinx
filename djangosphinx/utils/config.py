@@ -190,7 +190,7 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
     try:
         included_fields = options['included_fields']
         if 'id' not in included_fields:
-            included_fields.append('id')
+            included_fields.insert(0, 'id')
         [modified_fields.append(f) for f in model_fields if f.name in included_fields]
     except:
         pass
