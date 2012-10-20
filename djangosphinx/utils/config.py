@@ -88,14 +88,16 @@ def get_index_context(index):
 
     return params
 
-def get_source_context(tables, index, valid_fields, content_type=None):
+def get_source_context(tables, index, valid_fields, related_fields, join_statements, content_type=None):
     params = DEFAULT_SPHINX_PARAMS
     params.update({
         'tables': tables,
         'source_name': index,
         'index_name': index,
         'database_engine': _get_database_engine(),
-        'field_names': [f[1] for f in valid_fields],
+        'field_names': ['%s.%s as %s' % (f[4], f[1], f[5]) for f in valid_fields],
+        'related_fields': related_fields,
+        'join_statements': join_statements,
         'group_columns': [f[1] for f in valid_fields if f[2] or isinstance(f[0], models.BooleanField) or isinstance(f[0], models.IntegerField)],
         'date_columns': [f[1] for f in valid_fields if issubclass(f[0], models.DateTimeField) or issubclass(f[0], models.DateField)],
         'float_columns': [f[1] for f in valid_fields if isinstance(f[0], models.FloatField) or isinstance(f[0], models.DecimalField)],
@@ -140,16 +142,28 @@ def _process_options_for_model_fields(options, model_fields):
         [modified_fields.append(f) for f in model_fields if f.name in included_fields]
     except:
         pass
-    # De-normalize specified related fields into this source
-    try:
-        related_fields = options['related_fields']
-    except:
-        pass
 
     if len(modified_fields) > 0:
         return modified_fields
     else:
         return []
+
+def _process_related_fields_for_model(related_field_names, model_class):
+    # De-normalize specified related fields into the index for this source
+    app_label = model_class._meta.app_label
+    model_class = model_class._meta.db_table
+    join_statements = []
+    related_fields = []
+
+    for related in related_field_names:
+        model_name, field_name = related.split('.')
+        related_fields.append('%s_%s.%s as %s_%s_%s' % (app_label, model_name, field_name, app_label, model_name, field_name))
+        join_statements.append(
+            'INNER JOIN %s_%s ON %s.id=%s_%s.id ' % (app_label, model_name, model_class, app_label, model_name)
+        )
+
+    return related_fields, join_statements
+    
 
 # Generate for single models
 
@@ -200,11 +214,25 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
         t = _get_template('source.conf', index)
 
     def _the_tuple(f):
-        return (f.__class__, f.column, getattr(f.rel, 'to', None), f.choices)
+        return (
+            f.__class__, 
+            f.column, 
+            getattr(f.rel, 'to', None), 
+            f.choices, 
+            f.model._meta.db_table, # Verbose table name
+            '%s_%s' % (f.model._meta.db_table, f.column) # Alias
+        )
     
     model_fields = model_class._meta.fields
     options = model_class.__sphinx_options__
     modified_fields = _process_options_for_model_fields(options, model_fields)
+
+    try:
+        related_field_names = options['related_fields']
+        related_fields, join_statements = _process_related_fields_for_model(related_field_names, model_class)
+    except:
+        join_statements = []
+        related_fields = []
 
     if len(modified_fields) > 0:
         valid_fields = [_the_tuple(f) for f in modified_fields if _is_sourcable_field(f)]
@@ -216,7 +244,7 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
     if index is None:
         index = table
         
-    params = get_source_context([table], index, valid_fields, ContentType.objects.get_for_model(model_class))
+    params = get_source_context([table], index, valid_fields, related_fields, join_statements, ContentType.objects.get_for_model(model_class))
     params.update({
         'table_name': table,
         'primary_key': model_class._meta.pk.column,
