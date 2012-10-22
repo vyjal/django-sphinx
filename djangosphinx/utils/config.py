@@ -88,7 +88,7 @@ def get_index_context(index):
 
     return params
 
-def get_source_context(tables, index, valid_fields, related_fields, join_statements, content_type=None):
+def get_source_context(tables, index, valid_fields, related_fields, join_statements, table_name, content_type=None):
     params = DEFAULT_SPHINX_PARAMS
     params.update({
         'tables': tables,
@@ -103,7 +103,7 @@ def get_source_context(tables, index, valid_fields, related_fields, join_stateme
         'float_columns': [f[1] for f in valid_fields if isinstance(f[0], models.FloatField) or isinstance(f[0], models.DecimalField)],
     })
     if content_type is not None:
-        params['field_names'].append("%s as content_type" % content_type.id)
+        params['field_names'].append("%s as %s_content_type" % (content_type.id, table_name))
     try:
         from django.contrib.gis.db.models import PointField
         params.update({
@@ -154,13 +154,19 @@ def _process_related_fields_for_model(related_field_names, model_class):
     model_class = model_class._meta.db_table
     join_statements = []
     related_fields = []
+    join_tables = []
 
     for related in related_field_names:
         model_name, field_name = related.split('.')
+        if model_name not in join_tables:
+            join_tables.append(model_name)
+            join_statements.append(
+                'INNER JOIN %s_%s ON %s.id=%s_%s.id ' % (app_label, model_name, model_class, app_label, model_name)
+            )
+            # Add content type for related field model
+            content_type = ContentType.objects.get(app_label=app_label, model=model_name).pk
+            related_fields.append('%s as %s_%s_content_type' % (content_type, app_label, model_name))
         related_fields.append('%s_%s.%s as %s_%s_%s' % (app_label, model_name, field_name, app_label, model_name, field_name))
-        join_statements.append(
-            'INNER JOIN %s_%s ON %s.id=%s_%s.id ' % (app_label, model_name, model_class, app_label, model_name)
-        )
 
     return related_fields, join_statements
     
@@ -244,7 +250,15 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
     if index is None:
         index = table
         
-    params = get_source_context([table], index, valid_fields, related_fields, join_statements, ContentType.objects.get_for_model(model_class))
+    params = get_source_context(
+        [table], 
+        index, 
+        valid_fields, 
+        related_fields, 
+        join_statements, 
+        model_class._meta.db_table,
+        ContentType.objects.get_for_model(model_class)
+    )
     params.update({
         'table_name': table,
         'primary_key': model_class._meta.pk.column,
