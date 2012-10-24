@@ -88,7 +88,7 @@ def get_index_context(index):
 
     return params
 
-def get_source_context(tables, index, valid_fields, related_fields, join_statements, table_name, content_type=None):
+def get_source_context(tables, index, valid_fields, related_fields, join_statements, table_name, content_types, content_type=None):
     params = DEFAULT_SPHINX_PARAMS
     params.update({
         'tables': tables,
@@ -101,9 +101,11 @@ def get_source_context(tables, index, valid_fields, related_fields, join_stateme
         'group_columns': [f[1] for f in valid_fields if f[2] or isinstance(f[0], models.BooleanField) or isinstance(f[0], models.IntegerField)],
         'date_columns': [f[1] for f in valid_fields if issubclass(f[0], models.DateTimeField) or issubclass(f[0], models.DateField)],
         'float_columns': [f[1] for f in valid_fields if isinstance(f[0], models.FloatField) or isinstance(f[0], models.DecimalField)],
+        'content_types': content_types,
     })
     if content_type is not None:
         params['field_names'].append("%s as %s_content_type" % (content_type.id, table_name))
+        params['content_types'].append("%s_content_type" % (table_name))
     try:
         from django.contrib.gis.db.models import PointField
         params.update({
@@ -155,6 +157,9 @@ def _process_related_fields_for_model(related_field_names, model_class):
     join_statements = []
     related_fields = []
     join_tables = []
+    content_types = []
+
+    # import pdb; pdb.set_trace()
 
     for related in related_field_names:
         model_name, field_name = related.split('.')
@@ -166,9 +171,10 @@ def _process_related_fields_for_model(related_field_names, model_class):
             # Add content type for related field model
             content_type = ContentType.objects.get(app_label=app_label, model=model_name).pk
             related_fields.append('%s as %s_%s_content_type' % (content_type, app_label, model_name))
+            content_types.append('%s_%s_content_type' % (app_label, model_name))
         related_fields.append('%s_%s.%s as %s_%s_%s' % (app_label, model_name, field_name, app_label, model_name, field_name))
 
-    return related_fields, join_statements
+    return related_fields, join_statements, content_types
     
 
 # Generate for single models
@@ -235,10 +241,11 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
 
     try:
         related_field_names = options['related_fields']
-        related_fields, join_statements = _process_related_fields_for_model(related_field_names, model_class)
+        related_fields, join_statements, content_types = _process_related_fields_for_model(related_field_names, model_class)
     except:
         join_statements = []
         related_fields = []
+        content_types = []
 
     if len(modified_fields) > 0:
         valid_fields = [_the_tuple(f) for f in modified_fields if _is_sourcable_field(f)]
@@ -257,6 +264,7 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
         related_fields, 
         join_statements, 
         model_class._meta.db_table,
+        content_types,
         ContentType.objects.get_for_model(model_class)
     )
     params.update({
