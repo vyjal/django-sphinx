@@ -3,6 +3,7 @@ from django.conf import settings
 from django.template import Template, Context
 
 from django.db import models
+from django.db.models.fields import *
 from django.contrib.contenttypes.models import ContentType
 
 import os.path
@@ -126,7 +127,7 @@ def get_conf_context():
 def process_options_for_model(options=None):
     pass
 
-def _process_options_for_model_fields(options, model_fields):
+def _process_options_for_model_fields(options, model_fields, model_class):
     modified_fields = []
     # Remove optionally excluded fields from indexing
     try:
@@ -144,11 +145,77 @@ def _process_options_for_model_fields(options, model_fields):
         [modified_fields.append(f) for f in model_fields if f.name in included_fields]
     except:
         pass
+    try:
+        stored_attrs = options['stored_attributes']
+        if 'id' in stored_attrs:
+            # id can't be an attr
+            stored_attrs.pop(stored_attrs.index('id'))
+        # import pdb; pdb.set_trace()
+        all_attributes = _process_attributes_for_model_fields(stored_attrs, model_class)
+    except:
+        pass
 
     if len(modified_fields) > 0:
         return modified_fields
     else:
         return []
+
+
+def _process_attributes_for_model_fields(attributes, model_class):
+    # import pdb; pdb.set_trace()
+    attrs_string = []
+    attrs_int = []
+    attrs_float = []
+    attrs_bool = []
+    attrs_timestamp = []
+    all_attrs = []
+
+    
+    model_attrs = model_class._meta.fields
+    # Need at least one field for searching
+    if len(attributes) >= len(model_attrs):
+        print "At least one model field must not be a non-attribute."
+    else:
+        for field in model_attrs:
+            field_type = _get_sphinx_attr_for_field(field)
+            if field_type == 'int':
+                attrs_int.append(field.name)
+            elif field_type == 'string':
+                attrs_string.append(field.name)
+            elif field_type == 'float':
+                attrs_float.append(field.name)
+            elif field_type == 'bool':
+                attrs_bool.append(field.name)
+            elif field_type == 'timestamp':
+                attrs_timestamp.append(field.name)
+
+    all_attrs.append(attrs_string)
+    all_attrs.append(attrs_int)
+    all_attrs.append(attrs_float)
+    all_attrs.append(attrs_bool)
+    all_attrs.append(attrs_timestamp)
+
+    return all_attrs
+
+def _get_sphinx_attr_for_field(field):
+    int_fields = []
+    string_fields = []
+    bool_fields = []
+    float_fields = []
+    timestamp_fields = []
+    ft = type(field)
+
+    if ft in int_fields:
+        return 'int'
+    elif ft in string_fields:
+        return 'string'
+    elif ft in bool_fields:
+        return 'bool'
+    elif ft in float_fields:
+        return 'float'
+    elif ft in timestamp_fields:
+        return 'timestamp'
+
 
 def _process_related_fields_for_model(related_field_names, model_class):
     # De-normalize specified related fields into the index for this source
@@ -237,7 +304,7 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
     
     model_fields = model_class._meta.fields
     options = model_class.__sphinx_options__
-    modified_fields = _process_options_for_model_fields(options, model_fields)
+    modified_fields = _process_options_for_model_fields(options, model_fields, model_class)
 
     try:
         related_field_names = options['related_fields']
