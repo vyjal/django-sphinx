@@ -89,7 +89,7 @@ def get_index_context(index):
 
     return params
 
-def get_source_context(tables, index, valid_fields, related_fields, join_statements, table_name, content_types, content_type=None):
+def get_source_context(tables, index, valid_fields, attrs_string, related_fields, join_statements, table_name, content_types, content_type=None):
     params = DEFAULT_SPHINX_PARAMS
     params.update({
         'tables': tables,
@@ -99,6 +99,7 @@ def get_source_context(tables, index, valid_fields, related_fields, join_stateme
         'field_names': ['%s.%s as %s' % (f[4], f[1], f[5]) for f in valid_fields],
         'related_fields': related_fields,
         'join_statements': join_statements,
+        'attrs_string': attrs_string,
         'group_columns': [f[1] for f in valid_fields if f[2] or isinstance(f[0], models.BooleanField) or isinstance(f[0], models.IntegerField)],
         'date_columns': [f[1] for f in valid_fields if issubclass(f[0], models.DateTimeField) or issubclass(f[0], models.DateField)],
         'float_columns': [f[1] for f in valid_fields if isinstance(f[0], models.FloatField) or isinstance(f[0], models.DecimalField)],
@@ -129,6 +130,7 @@ def process_options_for_model(options=None):
 
 def _process_options_for_model_fields(options, model_fields, model_class):
     modified_fields = []
+    attrs_string = []
     # Remove optionally excluded fields from indexing
     try:
         excluded_fields = options['excluded_fields']
@@ -146,75 +148,43 @@ def _process_options_for_model_fields(options, model_fields, model_class):
     except:
         pass
     try:
-        stored_attrs = options['stored_attributes']
-        if 'id' in stored_attrs:
+        string_attrs = options['stored_string_attributes']
+        if 'id' in string_attrs:
             # id can't be an attr
-            stored_attrs.pop(stored_attrs.index('id'))
-        # import pdb; pdb.set_trace()
-        all_attributes = _process_attributes_for_model_fields(stored_attrs, model_class)
+            string_attrs.pop(string_attrs.index('id'))
+        attrs_string = _process_string_attributes_for_model_fields(string_attrs, model_class)
     except:
         pass
 
     if len(modified_fields) > 0:
-        return modified_fields
+        return modified_fields, attrs_string
     else:
-        return []
+        return [], attrs_string
 
 
-def _process_attributes_for_model_fields(attributes, model_class):
-    # import pdb; pdb.set_trace()
+def _process_string_attributes_for_model_fields(string_attrs, model_class):
     attrs_string = []
-    attrs_int = []
-    attrs_float = []
-    attrs_bool = []
-    attrs_timestamp = []
-    all_attrs = []
+    model_fields = model_class._meta.fields
+    db_table = model_class._meta.db_table
 
-    
-    model_attrs = model_class._meta.fields
     # Need at least one field for searching
-    if len(attributes) >= len(model_attrs):
+    if len(string_attrs) >= len(model_fields):
         print "At least one model field must not be a non-attribute."
     else:
-        for field in model_attrs:
-            field_type = _get_sphinx_attr_for_field(field)
-            if field_type == 'int':
-                attrs_int.append(field.name)
-            elif field_type == 'string':
-                attrs_string.append(field.name)
-            elif field_type == 'float':
-                attrs_float.append(field.name)
-            elif field_type == 'bool':
-                attrs_bool.append(field.name)
-            elif field_type == 'timestamp':
-                attrs_timestamp.append(field.name)
+        for field in model_fields:
+            if field.name in string_attrs:
+                field_type = _get_sphinx_attr_for_field(field)
+                if field_type == 'string':
+                    attrs_string.append('%s_%s' % (db_table, field.name))
 
-    all_attrs.append(attrs_string)
-    all_attrs.append(attrs_int)
-    all_attrs.append(attrs_float)
-    all_attrs.append(attrs_bool)
-    all_attrs.append(attrs_timestamp)
-
-    return all_attrs
+    return attrs_string
 
 def _get_sphinx_attr_for_field(field):
-    int_fields = []
-    string_fields = []
-    bool_fields = []
-    float_fields = []
-    timestamp_fields = []
+    string_fields = [CharField, EmailField, FilePathField, IPAddressField, SlugField, TextField, URLField]
     ft = type(field)
 
-    if ft in int_fields:
-        return 'int'
-    elif ft in string_fields:
+    if ft in string_fields:
         return 'string'
-    elif ft in bool_fields:
-        return 'bool'
-    elif ft in float_fields:
-        return 'float'
-    elif ft in timestamp_fields:
-        return 'timestamp'
 
 
 def _process_related_fields_for_model(related_field_names, model_class):
@@ -225,8 +195,6 @@ def _process_related_fields_for_model(related_field_names, model_class):
     related_fields = []
     join_tables = []
     content_types = []
-
-    # import pdb; pdb.set_trace()
 
     for related in related_field_names:
         model_name, field_name = related.split('.')
@@ -304,7 +272,8 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
     
     model_fields = model_class._meta.fields
     options = model_class.__sphinx_options__
-    modified_fields = _process_options_for_model_fields(options, model_fields, model_class)
+    
+    modified_fields, attrs_string = _process_options_for_model_fields(options, model_fields, model_class)
 
     try:
         related_field_names = options['related_fields']
@@ -328,6 +297,7 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
         [table], 
         index, 
         valid_fields, 
+        attrs_string,
         related_fields, 
         join_statements, 
         model_class._meta.db_table,
