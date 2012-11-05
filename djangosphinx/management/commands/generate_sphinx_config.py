@@ -17,6 +17,10 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         from djangosphinx.utils.config import generate_config_for_model, generate_sphinx_config
 
+        # warn the user to remove SPHINX_API_VERSION, because we no longer pull from bundled apis
+        if getattr(settings, 'SPHINX_API_VERSION', None) is not None:
+            raise CommandError("SPHINX_API_VERSION is deprecated, please use pip for installing the appropriate Sphinx API.")
+
         model_classes = []
         if options['find_all']:
             model_classes = itertools.chain(*(models.get_models(app) for app in models.get_apps()))
