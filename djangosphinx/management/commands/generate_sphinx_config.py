@@ -3,6 +3,7 @@ from django.db import models
 import itertools
 from optparse import make_option
 from sphinxapi import sphinxapi
+from django.conf import settings
 
 from djangosphinx.models import SphinxModelManager
 
