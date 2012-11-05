@@ -14,6 +14,7 @@ from django.conf import settings
 assert getattr(settings, 'SPHINX_ROOT', None) is not None, "You must specify `SPHINX_ROOT` in your settings."
 
 from django.template import RequestContext
+import pdb; pdb.set_trace()
 
 if 'coffin' in settings.INSTALLED_APPS:
     import jinja2

@@ -8,7 +8,8 @@ from django.contrib.contenttypes.models import ContentType
 
 import os.path
 
-import djangosphinx.apis.current as sphinxapi
+# import djangosphinx.apis.current as sphinxapi
+from sphinxapi import sphinxapi
 from django.template.loader import select_template
 
 __all__ = ('generate_config_for_model', 'generate_config_for_models', 'generate_sphinx_config')
@@ -77,7 +78,7 @@ DEFAULT_SPHINX_PARAMS.update({
     'pid_file': getattr(settings, 'SPHINX_PID_FILE', '/var/log/searchd.pid'),
     'sphinx_host': getattr(settings, 'SPHINX_HOST', '127.0.0.1'),
     'sphinx_port': getattr(settings, 'SPHINX_PORT', '3312'),
-    'sphinx_api_version': getattr(settings, 'SPHINX_API_VERSION', 0x113),
+    'sphinx_api_version': getattr(sphinxapi, 'VER_COMMAND_SEARCH', 0x113),
 })
 
 def get_index_context(index):

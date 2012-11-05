@@ -4,7 +4,8 @@ import time
 import struct
 import warnings
 import operator
-import apis.current as sphinxapi
+# import apis.current as sphinxapi
+from sphinxapi import sphinxapi
 import logging
 import re
 try:
