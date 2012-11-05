@@ -2,6 +2,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import models
 import itertools
 from optparse import make_option
+from sphinxapi import sphinxapi
 
 from djangosphinx.models import SphinxModelManager
 
@@ -54,7 +55,10 @@ class Command(BaseCommand):
                 excluded_fields = opts['excluded_fields']
                 try:
                     stored_string_attrs = opts['stored_string_attributes']
-                    opts['stored_string_attributes'] = _clobberExcludedFieldsFromAttrs(excluded_fields, opts)
+                    if sphinxapi.VER_COMMAND_SEARCH >= 0x117:
+                        opts['stored_string_attributes'] = _clobberExcludedFieldsFromAttrs(excluded_fields, opts)
+                    else:
+                        raise CommandError("Stored string attributes require a Sphinx API for version 1.10beta or above.")
                 except:
                     pass
             except:
