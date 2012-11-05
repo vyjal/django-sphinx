@@ -167,15 +167,11 @@ def _process_string_attributes_for_model_fields(string_attrs, model_class):
     model_fields = model_class._meta.fields
     db_table = model_class._meta.db_table
 
-    # Need at least one field for searching
-    if len(string_attrs) >= len(model_fields):
-        print "At least one model field must not be a non-attribute."
-    else:
-        for field in model_fields:
-            if field.name in string_attrs:
-                field_type = _get_sphinx_attr_for_field(field)
-                if field_type == 'string':
-                    attrs_string.append('%s_%s' % (db_table, field.name))
+    for field in model_fields:
+        if field.name in string_attrs:
+            field_type = _get_sphinx_attr_for_field(field)
+            if field_type == 'string':
+                attrs_string.append('%s_%s' % (db_table, field.name))
 
     return attrs_string
 

@@ -35,12 +35,32 @@ class Command(BaseCommand):
             except:
                 return True
 
+        def _clobberExcludedFieldsFromAttrs(excluded_fields, stored_string_attrs):
+            for field in excluded_fields:
+                if field in stored_string_attrs:
+                    stored_string_attrs.pop(stored_string_attrs.index(field))
+            return stored_string_attrs
+
+
         found = 0
         for model in model_classes:
             if getattr(model._meta, 'proxy', False) or getattr(model._meta, 'abstract', False):
                 continue
             indexes = getattr(model, '__sphinx_indexes__', [])
-            if _optionsAreSafe(getattr(model, '__sphinx_options__', None)):
+            opts = getattr(model, '__sphinx_options__', None)
+
+            # excluded_fields takes precedence over manual string stored field declarations!
+            try:
+                excluded_fields = opts['excluded_fields']
+                try:
+                    stored_string_attrs = opts['stored_string_attributes']
+                    opts['stored_string_attributes'] = _clobberExcludedFieldsFromAttrs(excluded_fields, opts)
+                except:
+                    pass
+            except:
+                pass
+  
+            if _optionsAreSafe(opts):
                 for index in indexes:
                     found += 1
                     print generate_config_for_model(model, index)
