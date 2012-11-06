@@ -68,6 +68,25 @@ class Command(BaseCommand):
                     pass
             except:
                 pass
+
+            # related_stored_attributes have to be in related_fields in order to be used
+            try:
+                related_fields = opts['related_fields']
+            except:
+                related_fields = None
+
+            if related_fields is not None:
+                try:
+                    related_stored_attributes = opts['related_stored_attributes']
+                except:
+                    related_stored_attributes = None
+                if related_stored_attributes is not None:
+                    for attribute in related_stored_attributes:
+                        if attribute not in related_fields:
+                            raise CommandError(
+                                "related_stored_attribute '%s' on model '%s' must also exist in the related_fields option." % (attribute, model)
+                            )
+
   
             if _optionsAreSafe(opts):
                 for index in indexes:

@@ -193,6 +193,8 @@ def _process_related_fields_for_model(related_field_names, model_class):
     join_tables = []
     content_types = []
 
+    # import pdb; pdb.set_trace()
+
     for related in related_field_names:
         model_name, field_name = related.split('.')
         if model_name not in join_tables:
@@ -207,6 +209,9 @@ def _process_related_fields_for_model(related_field_names, model_class):
         related_fields.append('%s_%s.%s as %s_%s_%s' % (app_label, model_name, field_name, app_label, model_name, field_name))
 
     return related_fields, join_statements, content_types
+
+def _process_related_attributes_for_model(related_attributes, model_class):
+    pass
     
 
 # Generate for single models
@@ -279,6 +284,17 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
         join_statements = []
         related_fields = []
         content_types = []
+
+    # Related attribute processing
+    try:
+        related_attributes = options['related_stored_attributes']
+        related_string_attributes, related_timestamp_attributes, related_bool_attributes, related_flt_dec_attributes = \
+        _process_related_attributes_for_model(related_attributes, model_class)
+    except:
+        related_string_attributes = []
+        related_timestamp_attributes = []
+        related_bool_attributes = []
+        related_flt_dec_attributes = []
 
     if len(modified_fields) > 0:
         valid_fields = [_the_tuple(f) for f in modified_fields if _is_sourcable_field(f)]
