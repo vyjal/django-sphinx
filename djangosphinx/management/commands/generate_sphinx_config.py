@@ -87,7 +87,6 @@ class Command(BaseCommand):
                                 "related_stored_attribute '%s' on model '%s' must also exist in the related_fields option." % (attribute, model)
                             )
 
-  
             if _optionsAreSafe(opts):
                 for index in indexes:
                     found += 1

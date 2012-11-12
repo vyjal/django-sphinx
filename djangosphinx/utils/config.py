@@ -90,7 +90,14 @@ def get_index_context(index):
 
     return params
 
-def get_source_context(tables, index, valid_fields, attrs_string, related_fields, join_statements, table_name, content_types, content_type=None):
+def get_source_context(tables, index, valid_fields, attrs_string, related_fields, join_statements, table_name, content_types, 
+    related_string_attributes,
+    related_int_attributes,
+    related_timestamp_attributes,
+    related_bool_attributes,
+    related_flt_dec_attributes,
+    content_type=None):    
+
     params = DEFAULT_SPHINX_PARAMS
     params.update({
         'tables': tables,
@@ -105,10 +112,23 @@ def get_source_context(tables, index, valid_fields, attrs_string, related_fields
         'date_columns': [f[1] for f in valid_fields if issubclass(f[0], models.DateTimeField) or issubclass(f[0], models.DateField)],
         'float_columns': [f[1] for f in valid_fields if isinstance(f[0], models.FloatField) or isinstance(f[0], models.DecimalField)],
         'content_types': content_types,
+        'related_string_attributes': related_string_attributes,
+        'related_timestamp_attributes': related_timestamp_attributes,
+        'related_bool_attributes': related_bool_attributes,
+        'related_flt_dec_attributes': related_flt_dec_attributes,
+        'related_int_attributes': related_int_attributes
     })
+
     if content_type is not None:
-        params['field_names'].append("%s as %s_content_type" % (content_type.id, table_name))
-        params['content_types'].append("%s_content_type" % (table_name))
+        # Use string attributes to store the content type if available, otherwise
+        # use integer pk for the model in the content type table for lookup
+
+        if sphinxapi.VER_COMMAND_SEARCH >= 0x117:
+            ct = '.'.join([content_type.app_label, content_type.model])
+            params['field_names'].append("'%s' as %s_content_type" % (str(ct), table_name))
+            params['content_types'].append("%s_content_type" % (table_name))
+        else:
+            params['field_names'].append("%s as content_type" % content_type.id)
     try:
         from django.contrib.gis.db.models import PointField
         params.update({
@@ -164,24 +184,37 @@ def _process_options_for_model_fields(options, model_fields, model_class):
 
 
 def _process_string_attributes_for_model_fields(string_attrs, model_class):
+    # import pdb; pdb.set_trace()
     attrs_string = []
     model_fields = model_class._meta.fields
     db_table = model_class._meta.db_table
 
     for field in model_fields:
         if field.name in string_attrs:
-            field_type = _get_sphinx_attr_for_field(field)
+            field_type = _get_sphinx_attr_type_for_field(field)
             if field_type == 'string':
                 attrs_string.append('%s_%s' % (db_table, field.name))
 
     return attrs_string
 
-def _get_sphinx_attr_for_field(field):
+def _get_sphinx_attr_type_for_field(field):
     string_fields = [CharField, EmailField, FilePathField, IPAddressField, SlugField, TextField, URLField]
+    int_fields = [AutoField, IntegerField, BigIntegerField, PositiveIntegerField, PositiveSmallIntegerField, SmallIntegerField]
+    float_fields = [DecimalField, FloatField]
+    timestamp_fields = [DateField, DateTimeField, TimeField]
+    bool_fields = [BooleanField, NullBooleanField]
     ft = type(field)
 
     if ft in string_fields:
         return 'string'
+    elif ft in int_fields:
+        return 'int'
+    elif ft in float_fields:
+        return 'float'
+    elif ft in timestamp_fields:
+        return 'timestamp'
+    elif ft in bool_fields:
+        return 'bool'
 
 
 def _process_related_fields_for_model(related_field_names, model_class):
@@ -192,8 +225,6 @@ def _process_related_fields_for_model(related_field_names, model_class):
     related_fields = []
     join_tables = []
     content_types = []
-
-    # import pdb; pdb.set_trace()
 
     for related in related_field_names:
         model_name, field_name = related.split('.')
@@ -211,8 +242,36 @@ def _process_related_fields_for_model(related_field_names, model_class):
     return related_fields, join_statements, content_types
 
 def _process_related_attributes_for_model(related_attributes, model_class):
-    pass
-    
+    related_string_attributes = []
+    related_int_attributes = []
+    related_timestamp_attributes = []
+    related_bool_attributes = []
+    related_flt_dec_attributes = []
+    model_field_names = []
+    model_fields = model_class._meta.fields
+    app_label = model_class._meta.app_label
+
+    for field in model_fields:
+        model_field_names.append(field.name)
+
+    for attribute in related_attributes:
+        model_name, field_name = attribute.split('.')
+        attr_name = '%s_%s_%s' % (app_label, model_name, field_name)
+        if field_name in model_field_names:
+            model_attr = model_fields[model_field_names.index(field_name)]
+            field_type = _get_sphinx_attr_type_for_field(model_attr)
+            if field_type == 'string':
+                related_string_attributes.append(attr_name)
+            elif field_type == 'int':
+                related_int_attributes.append(attr_name)
+            elif field_type == 'float':
+                related_flt_dec_attributes.append(attr_name)
+            elif field_type == 'timestamp':
+                related_timestamp_attributes.append(attr_name)
+            elif field_type == 'bool':
+                related_bool_attributes.append(attr_name)
+
+    return related_string_attributes, related_int_attributes, related_timestamp_attributes, related_bool_attributes, related_flt_dec_attributes
 
 # Generate for single models
 
@@ -247,6 +306,9 @@ def generate_index_for_model(model_class, index=None, sphinx_params={}):
     c = Context(params)
     
     return t.render(c)
+
+def generate_content_type_for_model(model_class):
+    pass
 
 def generate_source_for_model(model_class, index=None, sphinx_params={}):
     """
@@ -288,13 +350,14 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
     # Related attribute processing
     try:
         related_attributes = options['related_stored_attributes']
-        related_string_attributes, related_timestamp_attributes, related_bool_attributes, related_flt_dec_attributes = \
+        related_string_attributes, related_int_attributes, related_timestamp_attributes, related_bool_attributes, related_flt_dec_attributes = \
         _process_related_attributes_for_model(related_attributes, model_class)
     except:
         related_string_attributes = []
         related_timestamp_attributes = []
         related_bool_attributes = []
         related_flt_dec_attributes = []
+        related_int_attributes = []
 
     if len(modified_fields) > 0:
         valid_fields = [_the_tuple(f) for f in modified_fields if _is_sourcable_field(f)]
@@ -315,7 +378,12 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
         join_statements, 
         model_class._meta.db_table,
         content_types,
-        ContentType.objects.get_for_model(model_class)
+        related_string_attributes,
+        related_int_attributes,
+        related_timestamp_attributes,
+        related_bool_attributes,
+        related_flt_dec_attributes,
+        ContentType.objects.get_for_model(model_class),
     )
     params.update({
         'table_name': table,
@@ -326,8 +394,6 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
     c = Context(params)
     
     return t.render(c)
-
-
     
 # Generate for multiple models (search UNIONs)
 
