@@ -528,6 +528,9 @@ class SphinxQuerySet(object):
             self._index = self._index.encode('utf-8')
         
         results = client.Query(self._query, self._index)
+
+        for result in results['matches']:
+            result = self._decode_document_id(result)
         
         # The Sphinx API doesn't raise exceptions
 
@@ -554,6 +557,12 @@ class SphinxQuerySet(object):
             queryset = queryset.extra(**self._extra)
         return queryset.get(**kwargs)
 
+    def _decode_document_id(self, result):
+            doc_id = int(result['id'])
+            result['attrs']['content_type'] = (doc_id & 0xFF000000)>>24
+            result['id'] = doc_id & 0x00FFFFFF
+            return result
+
     def _get_results(self):
         results = self._get_sphinx_results()
         if not results:
@@ -568,7 +577,9 @@ class SphinxQuerySet(object):
             # XXX: The passages implementation has a potential gotcha if your id
             # column is not actually your primary key
             words = ' '.join([w['word'] for w in results['words']])
-            
+
+        
+
         if self.model:
             if results['matches']:
                 queryset = self.get_query_set(self.model)
@@ -593,6 +604,8 @@ class SphinxQuerySet(object):
                     queryset = queryset.filter(q)
                 else:
                     for r in results['matches']:
+                        # Decode the bitshifted document id into object id
+                        r = self._decode_document_id(r)
                         r['id'] = unicode(r['id'])
                     queryset = queryset.filter(pk__in=[r['id'] for r in results['matches']])
                 queryset = dict([(', '.join([unicode(getattr(o, p.attname)) for p in pks]), o) for o in queryset])

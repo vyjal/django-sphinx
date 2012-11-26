@@ -96,7 +96,10 @@ def get_source_context(tables, index, valid_fields, attrs_string, related_fields
     related_timestamp_attributes,
     related_bool_attributes,
     related_flt_dec_attributes,
-    content_type=None):    
+    content_type=None):
+
+    # remove the doc id
+    doc_id = valid_fields.pop(0)
 
     params = DEFAULT_SPHINX_PARAMS
     params.update({
@@ -108,9 +111,9 @@ def get_source_context(tables, index, valid_fields, attrs_string, related_fields
         'related_fields': related_fields,
         'join_statements': join_statements,
         'attrs_string': attrs_string,
-        'group_columns': [f[1] for f in valid_fields if f[2] or isinstance(f[0], models.BooleanField) or isinstance(f[0], models.IntegerField)],
-        'date_columns': [f[1] for f in valid_fields if issubclass(f[0], models.DateTimeField) or issubclass(f[0], models.DateField)],
-        'float_columns': [f[1] for f in valid_fields if isinstance(f[0], models.FloatField) or isinstance(f[0], models.DecimalField)],
+        'group_columns': ['%s' % f[5] for f in valid_fields if f[2] or isinstance(f[0], models.BooleanField) or isinstance(f[0], models.IntegerField)],
+        'date_columns': ['%s' % f[5] for f in valid_fields if issubclass(f[0], models.DateTimeField) or issubclass(f[0], models.DateField)],
+        'float_columns': ['%s' % f[5] for f in valid_fields if isinstance(f[0], models.FloatField) or isinstance(f[0], models.DecimalField)],
         'content_types': content_types,
         'related_string_attributes': related_string_attributes,
         'related_timestamp_attributes': related_timestamp_attributes,
@@ -120,6 +123,8 @@ def get_source_context(tables, index, valid_fields, attrs_string, related_fields
     })
 
     if content_type is not None:
+        params['document_id'] = '%s<<%i|%s.%s as %s' % (content_type.id, 24, doc_id[4], doc_id[1], doc_id[5])
+
         # Use string attributes to store the content type if available, otherwise
         # use integer pk for the model in the content type table for lookup
 
@@ -184,7 +189,6 @@ def _process_options_for_model_fields(options, model_fields, model_class):
 
 
 def _process_string_attributes_for_model_fields(string_attrs, model_class):
-    # import pdb; pdb.set_trace()
     attrs_string = []
     model_fields = model_class._meta.fields
     db_table = model_class._meta.db_table
