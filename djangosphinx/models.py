@@ -219,6 +219,7 @@ class SphinxQuerySet(object):
         self.model                  = model
         self._anchor                = {}
         self.__metadata             = {}
+        self.results_cts            = []
         
         self.using                  = using
         
@@ -529,8 +530,12 @@ class SphinxQuerySet(object):
         
         results = client.Query(self._query, self._index)
 
+        # Decode the encoded document ids, and if a content type is found set the string
+        # on the results list attributes (that likely got clobbered due to heterogenous index schema :\)
         for result in results['matches']:
             result = self._decode_document_id(result)
+
+        results['attrs'].append({'content_type': True})
         
         # The Sphinx API doesn't raise exceptions
 
@@ -558,10 +563,12 @@ class SphinxQuerySet(object):
         return queryset.get(**kwargs)
 
     def _decode_document_id(self, result):
-            doc_id = int(result['id'])
-            result['attrs']['content_type'] = (doc_id & 0xFF000000)>>24
-            result['id'] = doc_id & 0x00FFFFFF
-            return result
+        doc_id = int(result['id'])
+        result_ct = (doc_id & 0xFF000000)>>24
+        result['attrs']['content_type'] = result_ct
+        result['id'] = doc_id & 0x00FFFFFF
+
+        return result
 
     def _get_results(self):
         results = self._get_sphinx_results()
@@ -621,7 +628,7 @@ class SphinxQuerySet(object):
                 results = []
         else:
             "We did a query without a model, lets see if there's a content_type"
-            results['attrs'] = dict(results['attrs'])
+            results['attrs'] = dict(results['attrs'][0])
             if 'content_type' in results['attrs']:
                 "Now we have to do one query per content_type"
                 objcache = {}
