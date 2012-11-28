@@ -15,6 +15,7 @@ except ImportError:
 
 from django.db.models.query import QuerySet, Q
 from django.conf import settings
+from django.core.cache import cache
 
 __all__ = ('SearchError', 'ConnectionError', 'SphinxSearch', 'SphinxRelation', 'SphinxQuerySet')
 
@@ -637,7 +638,14 @@ class SphinxQuerySet(object):
                     r['id'] = unicode(r['id'])
                     objcache.setdefault(ct, {})[r['id']] = None
                 for ct in objcache:
-                    model_class = ContentType.objects.get(pk=ct).model_class()
+                    # Try to pull the content type out of cache...
+                    if cache.get('djangosphinx_content_type_%s' % ct):
+                        model_class = cache.get('djangosphinx_content_type_%s' % ct)
+                    else:
+                        model_class = ContentType.objects.get(pk=ct).model_class()
+                        # Cache for a week
+                        cache.set('djangosphinx_content_type_%s' % ct, model_class, 604800)
+
                     pks = getattr(model_class._meta, 'pks', [model_class._meta.pk])
                     
                     if results['matches'][0]['attrs'].get(pks[0].column):
