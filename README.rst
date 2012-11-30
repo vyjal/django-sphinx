@@ -7,26 +7,8 @@ Please Note: You will need to create your own sphinx indexes and install sphinx 
 Installation
 ------------
 
-To install the latest stable version::
+*Note:* You will need to install the `sphinxapi.py` package into your Python Path. In previous version of djangosphinx, Sphinx Python APIs were provided in the djangosphinx package. This has been dropped in favor of versioned PIP packages for each Sphinx API that is available, or a manual installation of the "sphinxapi.py" file in your Python path. If you prefer the manual method, and are using Virtualenv, you can simply create a directory called "sphinxapi" in your site-packages and drop the (included with your download of the Sphinx source) sphinxapi.py file in inside. Also, create an empty __init__.py file in the "sphinxapi" directory so Python knows that the API is an importable package.
 
-	sudo easy_install django-sphinx
-
-To install the latest development version (updated quite often)::
-
-	git clone git://github.com/dcramer/django-sphinx.git  
-	cd django-sphinx
-	sudo python setup.py install
-
-*Note:* You will need to install the `sphinxapi.py` package into your Python Path or use one of the included versions. To use the included version, you must specify the following in your `settings.py` file::
-
-	# Sphinx 0.9.9
-	SPHINX_API_VERSION = 0x116
-
-	# Sphinx 0.9.8
-	SPHINX_API_VERSION = 0x113
-
-	# Sphinx 0.9.7
-	SPHINX_API_VERSION = 0x107
 
 Usage
 -----
@@ -67,6 +49,8 @@ The following is some example usage::
 	# you can also access a similar set of meta data on the queryset itself (once it's been sliced or executed in any way)
 	print results1._sphinx
 
+	# as of 3.0 you can specify 'options', which are described in detail below.
+
 
 Some additional methods:
 * count()
@@ -76,7 +60,7 @@ Some additional methods:
 * group_by(field, field, field)
 * set_options(index='', weights={}, weights=[], mode='SPH_MODE_*', rankmode='SPH_MATCH_*')
 
-The django-sphinx layer also supports some basic querying over multiple indexes. To use this you first need to understand the rules of a UNION. Your indexes must contain exactly the same fields. These fields must also include a `content_type` selection which should be the content_type id associated with that table (model).
+The django-sphinx layer also supports some basic querying over multiple indexes. To use this you first need to understand the rules of a UNION. As of djangosphinx 3.0, it is no longer necessary to store a "content_type" attribute in your index, as it is encoded in the 32-bit doc_id along with object pk. Additionally, ContentType queries are stored in cache under the format "djangosphinx_content_type_xxx", where xxx is the pk of the ContentType object. In general, you needn't bother with these cache values - just be aware if you're trying to set a cache key for an unrelated object/value to something of this format, you're going to get some strange results.
 
 You can then do something like this::
 
@@ -85,6 +69,12 @@ You can then do something like this::
 	SphinxSearch('index1 index2 index3').query('hello')
 
 This will return a list of all matches, ordered by weight, from all indexes. This performs one SQL query per index with matches in it, as Django's ORM does not support SQL UNION.
+
+Be aware that making queries in this manner has a couple of gotchas. First, you must have globally unique document IDs. This is largely taken care of internally by djangosphinx 3.0 with SQL bitwise arithmetic, but just be aware of this inherent limitation of SphinxClient's Query() function when used outside of djangosphinx.
+
+Second, you must have "homogeneous" index schemas. What this means is that the "fields" (not attributes) you perform a search on must have the same name across indexes. If these requirement is not met, in the above "SphinxSearch('index1 index2 index3').query('hello')" example the searchable field AND attribute values of the last index (in this case 'index3') will be used for all results, even those from 'index1' and 'index2'. The result is that weight, searched field, and attribute values will be completely wrong for all results that aren't from 'index3'. In all likelihood, your attributes will be empty, weight will be "100", and you'll just get back document IDs from Sphinx.
+
+If you intend to use the built in djangosphinx.shortcuts.sphinx_query() function, be aware that it is using this Query() function to perform searches across all of the models that have a SphinxSearch() manager. The best way to avoid this issue if you've got a simple schema (i.e. you're searching only one field per index) is to pick an arbitrary name like "text", and in your sql_query, change the field to be searched on to have the name text. Example: "SELECT ..., tablename.name as 'text'"". Do this for every index, and you can perform Query() searches across them. For anything more complex, you're going to have to be creative.
 
 Config Generation
 -----------------
@@ -115,6 +105,46 @@ This will loop through all models in <appname> and attempt to find any with a Sp
 
 Using the Config Generator
 --------------------------
+* New in 3.0*
+A new "options" key has been added to SphinxSearch. These new options allow you to specify various aspects of your generated configuration file.
+
+Allowed keys are:
+"excluded_fields" 
+"included_fields"
+"stored_string_attributes"
+"related_fields"
+"related_stored_attributes"
+
+"excluded_fields", "included_fields", and "stored_string_attributes"
+
+The "excluded_fields" and "included_fields" keys are mutually exclusive, meaning the following SphinxSearch configuration will throw a command error when you try to execute "generate_sphinx_config --all":
+
+search = SphinxSearch(
+	options = {
+		'excluded_fields': ['name', 'address'],
+		'included_fields': ['phone', 'address']
+	}
+)
+
+Either whitelist fields you want, or blacklist fields you don't - not both. By default, leaving these options out will result in the configuration generator making all model fields available for full-text indexing, if those fields are the right type (string).
+
+The "stored_string_attributes" option (Sphinx v1.10beta or higher) allows you to specify string fields of your Django model to be stored inside the document for each result of that model type. This can result in a non-trivial increase in the size of your index, so be judicious about what size strings you're putting in as string attributes. If you put in models.TextField fields as string attributes, be prepared for many orders of magnitude higher index times and index size. You've been warned!
+
+"related_fields" and "related_stored_attributes"
+
+These two options allow the configuration generator to look ONE-level deep through one-to-many (ForeignKey) relationships on the Django model for your index. ManyToMany relations are not supported - you'll have to write that configuration yourself. In practice, a field specified in "related_stored_attributes" option is dependent on the presence of that field name in the "related_fields" option. An example:
+
+search = SphinxSearch(
+	options = {
+		'related_fields': ['car.make', 'car.model'],
+		'related_stored_attributes': ['car.model']
+	}
+)
+
+In this example, 'car' is the name of the ForeignKey field on the model for this index. Any fields you specify in 'related_fields' will be placed in the main Sphinx sql_query, and therefore eligible for full-text searching (if it's the right field type). Any fields in 'related_fields' that are also present in 'related_stored_attributes' will be stored in each Sphinx document.
+
+**WARNING**
+The same caveats that pertain to "stored_string_fields" apply here. Be careful about storing too much information in this manner. Attributes are meant mainly for filtering and sorting, not storage. Add too much baggage to your documents and you can make Sphinx crawl. You've been warned - again.
 
 *New in 2.2*
 
