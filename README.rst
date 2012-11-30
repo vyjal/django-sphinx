@@ -115,7 +115,7 @@ Allowed keys are:
 "related_fields"
 "related_stored_attributes"
 
-"excluded_fields", "included_fields", and "stored_string_attributes"
+<code>"excluded_fields", "included_fields", and "stored_string_attributes"</code>
 
 The "excluded_fields" and "included_fields" keys are mutually exclusive, meaning the following SphinxSearch configuration will throw a command error when you try to execute "generate_sphinx_config --all":
 
@@ -130,7 +130,7 @@ Either whitelist fields you want, or blacklist fields you don't - not both. By d
 
 The "stored_string_attributes" option (Sphinx v1.10beta or higher) allows you to specify string fields of your Django model to be stored inside the document for each result of that model type. This can result in a non-trivial increase in the size of your index, so be judicious about what size strings you're putting in as string attributes. If you put in models.TextField fields as string attributes, be prepared for many orders of magnitude higher index times and index size. You've been warned!
 
-"related_fields" and "related_stored_attributes"
+<code>"related_fields" and "related_stored_attributes"</code>
 
 These two options allow the configuration generator to look ONE-level deep through one-to-many (ForeignKey) relationships on the Django model for your index. ManyToMany relations are not supported - you'll have to write that configuration yourself. In practice, a field specified in "related_stored_attributes" option is dependent on the presence of that field name in the "related_fields" option. An example:
 
