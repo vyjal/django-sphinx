@@ -1,7 +1,5 @@
-import select
-import socket
 import time
-import struct
+
 import warnings
 import operator
 # import apis.current as sphinxapi
@@ -13,7 +11,7 @@ try:
 except ImportError:
     from django.utils import _decimal as decimal  # for Python 2.3
 
-from django.db.models.query import QuerySet, Q
+from django.db.models.query import Q
 from django.conf import settings
 from django.core.cache import cache
 

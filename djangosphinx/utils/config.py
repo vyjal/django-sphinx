@@ -1,12 +1,10 @@
 import django
 from django.conf import settings
-from django.template import Template, Context
+from django.template import Context
 
 from django.db import models
 from django.db.models.fields import *
 from django.contrib.contenttypes.models import ContentType
-
-import os.path
 
 # import djangosphinx.apis.current as sphinxapi
 from sphinxapi import sphinxapi

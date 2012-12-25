@@ -1,8 +1,6 @@
 from django.views.generic import TemplateView
 from django.views.generic.list import ListView
-from django.db import models
 
-from djangosphinx.models import SphinxQuerySet
 from djangosphinx.shortcuts import sphinx_query
 
 
