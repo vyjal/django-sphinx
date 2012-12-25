@@ -7,10 +7,11 @@ from django.conf import settings
 
 from djangosphinx.models import SphinxModelManager
 
+
 class Command(BaseCommand):
     help = "Prints generic configuration for any models which use a standard SphinxSearch manager."
     option_list = BaseCommand.option_list + (
-        make_option('--all', action='store_true',default=False,dest='find_all',help='generate config for all models in all INSTALLED_APPS'),
+        make_option('--all', action='store_true', default=False, dest='find_all', help='generate config for all models in all INSTALLED_APPS'),
     )
 
     output_transaction = True
@@ -28,11 +29,12 @@ class Command(BaseCommand):
         elif len(args):
             app_list = [models.get_app(app_label) for app_label in args]
             for app in app_list:
-                model_classes.extend([ getattr(app, n) for n in dir(app) if hasattr(getattr(app, n), '_meta')])
+                model_classes.extend([getattr(app, n) for n in dir(app) if hasattr(getattr(app, n), '_meta')])
         else:
             raise CommandError("You must specify an app name or use --all")
 
         unsafe_options = []
+
         def _optionsAreSafe(options):
             try:
                 options['excluded_fields'] and options['included_fields']
@@ -46,7 +48,6 @@ class Command(BaseCommand):
                 if field in stored_string_attrs:
                     stored_string_attrs.pop(stored_string_attrs.index(field))
             return stored_string_attrs
-
 
         found = 0
         for model in model_classes:
@@ -98,5 +99,3 @@ class Command(BaseCommand):
 
         print generate_sphinx_config()
         #return u'\n'.join(sql_create(app, self.style)).encode('utf-8')
-
-

@@ -35,6 +35,7 @@ import os.path
 
 __version__ = (3, 0, 0)
 
+
 def _get_git_revision(path):
     revision_file = os.path.join(path, 'refs', 'heads', 'master')
     if not os.path.exists(revision_file):
@@ -44,6 +45,7 @@ def _get_git_revision(path):
         return fh.read()
     finally:
         fh.close()
+
 
 def get_revision():
     """
@@ -58,6 +60,7 @@ def get_revision():
     return None
 
 __build__ = get_revision()
+
 
 def lazy_object(location):
     def inner(*args, **kwargs):

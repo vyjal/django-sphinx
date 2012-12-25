@@ -31,6 +31,7 @@ class SearchResultsList(ListView):
     def get_context_object_name(self, request, *args, **kwargs):
         return "Search"
 
+
 class SearchResults(TemplateView):
     template_name = 'search.html'
 
@@ -38,7 +39,7 @@ class SearchResults(TemplateView):
         return "Search"
 
     def get(self, request, *args, **kwargs):
-        
+
         query = request.GET['q']
         filter_query = request.GET.get('filter', None)
         limit = 20
@@ -49,12 +50,12 @@ class SearchResults(TemplateView):
             page = 1
         else:
             qs = sphinx_query(query)
-        
+
         context = self.get_context_data(params=kwargs)
 
         try:
             offset = limit * (page - 1)
-            results = list(qs[offset:offset+limit])
+            results = list(qs[offset:offset + limit])
             count = qs.count()
         except:
             count = -1
@@ -70,8 +71,8 @@ class SearchResults(TemplateView):
         if context['num_pages'] > 1:
             context['is_paginated'] = True
         if page > 1:
-            context['previous_page_number'] = page-1
+            context['previous_page_number'] = page - 1
         if page < context['num_pages']:
-            context['next_page_number'] = page+1
+            context['next_page_number'] = page + 1
 
         return self.render_to_response(context)

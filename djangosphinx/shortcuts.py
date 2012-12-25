@@ -6,6 +6,7 @@ __all__ = ('sphinx_query',)
 
 _all_sphinx_indexes_cache = None
 
+
 def _all_indexes():
     global _all_sphinx_indexes_cache
     if _all_sphinx_indexes_cache is None:
@@ -19,6 +20,7 @@ def _all_indexes():
                 indexes.extend(index)
         _all_sphinx_indexes_cache = ' '.join(indexes)
     return _all_sphinx_indexes_cache
+
 
 def sphinx_query(query):
     qs = SphinxQuerySet(index=_all_indexes())

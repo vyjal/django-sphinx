@@ -2,26 +2,28 @@ from django.contrib.admin.views.main import *
 from django.contrib.admin import ModelAdmin
 from djangosphinx.models import SphinxQuerySet
 
+
 class SphinxModelAdmin(ModelAdmin):
     index = None
     weights = None
     # This is a hack
     search_fields = ['pk']
     actions = None
-    
+
     def queryset(self, request):
         return SphinxQuerySet(
             model=self.model,
             index=self.index,
         )
-    
+
     def get_changelist(self, request, **kwargs):
         return SphinxChangeList
+
 
 class SphinxChangeList(ChangeList):
     def get_query_set(self):
         qs = self.root_query_set
-        lookup_params = self.params.copy() # a dictionary of the query string
+        lookup_params = self.params.copy()  # a dictionary of the query string
         for i in (ALL_VAR, ORDER_VAR, ORDER_TYPE_VAR, SEARCH_VAR, IS_POPUP_VAR):
             if i in lookup_params:
                 del lookup_params[i]
@@ -42,7 +44,7 @@ class SphinxChangeList(ChangeList):
         # Naked except! Because we don't have any other way of validating "params".
         # They might be invalid if the keyword arguments are incorrect, or if the
         # values are not in the correct type, so we might get FieldError, ValueError,
-        # ValicationError, or ? from a custom field that raises yet something else 
+        # ValicationError, or ? from a custom field that raises yet something else
         # when handed impossible data.
         except:
             raise IncorrectLookupParameters
@@ -76,7 +78,7 @@ class SphinxChangeList(ChangeList):
             return qs.none()
 
         return qs
-    
+
     def get_results(self, request):
         paginator = Paginator(self.query_set, self.list_per_page)
         # Get the number of objects, with admin filters applied.
@@ -86,7 +88,7 @@ class SphinxChangeList(ChangeList):
 
         # Get the list of objects to display on this page.
         try:
-            result_list = paginator.page(self.page_num+1).object_list
+            result_list = paginator.page(self.page_num + 1).object_list
         except InvalidPage:
             result_list = ()
 

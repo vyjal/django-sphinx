@@ -11,7 +11,7 @@ import re
 try:
     import decimal
 except ImportError:
-    from django.utils import _decimal as decimal # for Python 2.3
+    from django.utils import _decimal as decimal  # for Python 2.3
 
 from django.db.models.query import QuerySet, Q
 from django.conf import settings
@@ -30,7 +30,7 @@ SPHINX_PORT             = int(getattr(settings, 'SPHINX_PORT', 3312))
 SPHINX_RETRIES          = int(getattr(settings, 'SPHINX_RETRIES', 0))
 SPHINX_RETRIES_DELAY    = int(getattr(settings, 'SPHINX_RETRIES_DELAY', 5))
 
-MAX_INT = int(2**31-1)
+MAX_INT = int(2 ** 31 - 1)
 
 EMPTY_RESULT_SET = dict(
     matches=[],
@@ -42,14 +42,20 @@ EMPTY_RESULT_SET = dict(
 
 UNDEFINED = object()
 
-class SearchError(Exception): pass
-class ConnectionError(Exception): pass
+
+class SearchError(Exception):
+    pass
+
+
+class ConnectionError(Exception):
+    pass
+
 
 class SphinxProxy(object):
     """
     Acts exactly like a normal instance of an object except that
     it will handle any special sphinx attributes in a `_sphinx` class.
-    
+
     If there is no `sphinx` attribute on the instance, it will also
     add a proxy wrapper to `_sphinx` under that name as well.
     """
@@ -184,6 +190,7 @@ class SphinxProxy(object):
     __enter__ = lambda x: x.__enter__()
     __exit__ = lambda x, *a, **kw: x.__exit__(*a, **kw)
 
+
 def to_sphinx(value):
     "Convert a value into a sphinx query value"
     if isinstance(value, date) or isinstance(value, datetime):
@@ -192,9 +199,10 @@ def to_sphinx(value):
         return float(value)
     return int(value)
 
+
 class SphinxQuerySet(object):
     available_kwargs = ('rankmode', 'mode', 'weights', 'maxmatches', 'passages', 'passages_opts')
-    
+
     def __init__(self, model=None, using=None, **kwargs):
         self._select_related        = False
         self._select_related_args   = {}
@@ -221,9 +229,9 @@ class SphinxQuerySet(object):
         self._anchor                = {}
         self.__metadata             = {}
         self.results_cts            = []
-        
+
         self.using                  = using
-        
+
         options = self._format_options(**kwargs)
         for key, value in options.iteritems():
             setattr(self, key, value)
@@ -241,10 +249,10 @@ class SphinxQuerySet(object):
 
     def __len__(self):
         return self.count()
-        
+
     def __iter__(self):
         return iter(self._get_data())
-    
+
     def __getitem__(self, k):
         if not isinstance(k, (slice, int, long)):
             raise TypeError
@@ -255,20 +263,20 @@ class SphinxQuerySet(object):
             # Check to see if this is a portion of an already existing result cache
             if type(k) == slice:
                 start = k.start
-                stop = k.stop-k.start
+                stop = k.stop - k.start
                 if start < self._offset or k.stop > self._limit:
                     self._result_cache = None
                 else:
-                    start = start-self._offset
-                    return self._get_data()[start:k.stop]
+                    start = start - self._offset
+                    return self._get_data()[start: k.stop]
             else:
-                if k not in range(self._offset, self._limit+self._offset):
+                if k not in range(self._offset, self._limit + self._offset):
                     self._result_cache = None
                 else:
-                    return self._get_data()[k-self._offset]
+                    return self._get_data()[k - self._offset]
         if type(k) == slice:
             self._offset = k.start
-            self._limit = k.stop-k.start
+            self._limit = k.stop - k.start
             return self._get_data()
         else:
             self._offset = k
@@ -317,11 +325,11 @@ class SphinxQuerySet(object):
     # only works on attributes
     def filter(self, **kwargs):
         filters = self._filters.copy()
-        for k,v in kwargs.iteritems():
+        for k, v in kwargs.iteritems():
             if hasattr(v, '__iter__'):
                 v = list(v)
             elif not (isinstance(v, list) or isinstance(v, tuple)):
-                 v = [v,]
+                v = [v]
             filters.setdefault(k, []).extend(map(to_sphinx, v))
         return self._clone(_filters=filters)
 
@@ -333,20 +341,20 @@ class SphinxQuerySet(object):
     # keep things looking/working generally the same
     def all(self):
         return self
-    
+
     def none(self):
         c = EmptySphinxQuerySet()
         c.__dict__.update(self.__dict__.copy())
         return c
-        
+
     # only works on attributes
     def exclude(self, **kwargs):
         filters = self._excludes.copy()
-        for k,v in kwargs.iteritems():
+        for k, v in kwargs.iteritems():
             if hasattr(v, 'next'):
                 v = list(v)
             elif not (isinstance(v, list) or isinstance(v, tuple)):
-                 v = [v,]
+                v = [v]
             filters.setdefault(k, []).extend(map(to_sphinx, v))
         return self._clone(_excludes=filters)
 
@@ -372,20 +380,20 @@ class SphinxQuerySet(object):
         if sort_by:
             return self._clone(_sort=(mode, ', '.join(sort_by)))
         return self
-                    
+
     # pass these thru on the queryset and let django handle it
     def select_related(self, *args, **kwargs):
         _args = self._select_related_fields[:]
         _args.extend(args)
         _kwargs = self._select_related_args.copy()
         _kwargs.update(kwargs)
-        
+
         return self._clone(
             _select_related=True,
             _select_related_fields=_args,
             _select_related_args=_kwargs,
         )
-    
+
     def extra(self, **kwargs):
         extra = self._extra.copy()
         extra.update(kwargs)
@@ -410,7 +418,7 @@ class SphinxQuerySet(object):
         for k, v in kwargs.iteritems():
             setattr(c, k, v)
         return c
-    
+
     def _sphinx(self):
         if not self.__metadata:
             # We have to force execution if this is accessed beforehand
@@ -435,7 +443,7 @@ class SphinxQuerySet(object):
         if self._sort:
             params.append('sort=%s' % (self._sort,))
             client.SetSortMode(*self._sort)
-        
+
         if isinstance(self._weights, dict):
             client.SetFieldWeights(self._weights)
         else:
@@ -445,12 +453,12 @@ class SphinxQuerySet(object):
 
         params.append('matchmode=%s' % (self._mode,))
         client.SetMatchMode(self._mode)
-        
+
         def _handle_filters(filter_list, exclude=False):
             for name, values in filter_list.iteritems():
                 parts = len(name.split('__'))
                 if parts > 2:
-                    raise NotImplementedError, 'Related object and/or multiple field lookups not supported'
+                    raise NotImplementedError('Related object and/or multiple field lookups not supported')
                 elif parts == 2:
                     # The float handling for __gt and __lt is kind of ugly..
                     name, lookup = name.split('__', 1)
@@ -459,7 +467,7 @@ class SphinxQuerySet(object):
                         value = values[0]
                         if lookup == 'gt':
                             if is_float:
-                                value += (1.0/MAX_INT)
+                                value += (1.0 / MAX_INT)
                             else:
                                 value += 1
                         _max = MAX_INT
@@ -470,7 +478,7 @@ class SphinxQuerySet(object):
                         value = values[0]
                         if lookup == 'lt':
                             if is_float:
-                                value -= (1.0/MAX_INT)
+                                value -= (1.0 / MAX_INT)
                             else:
                                 value -= 1
                         _max = -MAX_INT
@@ -482,7 +490,7 @@ class SphinxQuerySet(object):
                     elif lookup == 'range':
                         args = (name, values[0], values[1], exclude)
                     else:
-                        raise NotImplementedError, 'Related object and/or field lookup "%s" not supported' % lookup
+                        raise NotImplementedError('Related object and/or field lookup "%s" not supported' % lookup)
                     if is_float:
                         client.SetFilterFloatRange(*args)
                     elif not exclude and self.model and name == self.model._meta.pk.column:
@@ -503,7 +511,7 @@ class SphinxQuerySet(object):
         if self._excludes:
             params.append('excludes=%s' % (self._excludes,))
             _handle_filters(self._excludes, True)
-        
+
         if self._groupby:
             params.append('groupby=%s' % (self._groupby,))
             client.SetGroupBy(self._groupby, self._groupfunc, self._groupsort)
@@ -519,16 +527,16 @@ class SphinxQuerySet(object):
         if not self._limit > 0:
             # Fix for Sphinx throwing an assertion error when you pass it an empty limiter
             return EMPTY_RESULT_SET
-        
+
         if sphinxapi.VER_COMMAND_SEARCH >= 0x113:
             client.SetRetries(SPHINX_RETRIES, SPHINX_RETRIES_DELAY)
-        
+
         client.SetLimits(int(self._offset), int(self._limit), int(self._maxmatches))
-        
+
         # To avoid modifying the Sphinx API, we solve unicode indexes here
         if isinstance(self._index, unicode):
             self._index = self._index.encode('utf-8')
-        
+
         results = client.Query(self._query, self._index)
 
         # Decode the encoded document ids, and if a content type is found set the string
@@ -537,23 +545,23 @@ class SphinxQuerySet(object):
             result = self._decode_document_id(result)
 
         results['attrs'].append({'content_type': True})
-        
+
         # The Sphinx API doesn't raise exceptions
 
         if not results:
             if client.GetLastError():
-                raise SearchError, client.GetLastError()
+                raise SearchError(client.GetLastError())
             elif client.GetLastWarning():
-                raise SearchError, client.GetLastWarning()
+                raise SearchError(client.GetLastWarning())
             else:
                 results = EMPTY_RESULT_SET
         elif not results['matches']:
             results = EMPTY_RESULT_SET
-        
+
         logging.debug('Found %s results for search query %s on %s with params: %s', results['total'], self._query, self._index, ', '.join(params))
-        
+
         return results
-    
+
     def get(self, **kwargs):
         """Hack to support ModelAdmin"""
         queryset = self.model._default_manager
@@ -565,7 +573,7 @@ class SphinxQuerySet(object):
 
     def _decode_document_id(self, result):
         doc_id = int(result['id'])
-        result_ct = (doc_id & 0xFF000000)>>24
+        result_ct = (doc_id & 0xFF000000) >> 24
         result['attrs']['content_type'] = result_ct
         result['id'] = doc_id & 0x00FFFFFF
 
@@ -586,8 +594,6 @@ class SphinxQuerySet(object):
             # column is not actually your primary key
             words = ' '.join([w['word'] for w in results['words']])
 
-        
-
         if self.model:
             if results['matches']:
                 queryset = self.get_query_set(self.model)
@@ -601,11 +607,11 @@ class SphinxQuerySet(object):
                 # but all primary key columns still need to be present in the field list
                 pks = getattr(self.model._meta, 'pks', [self.model._meta.pk])
                 if results['matches'][0]['attrs'].get(pks[0].column):
-                    
+
                     # XXX: Sometimes attrs is empty and we cannot have custom primary key attributes
                     for r in results['matches']:
                         r['id'] = ', '.join([unicode(r['attrs'][p.column]) for p in pks])
-            
+
                     # Join our Q objects to get a where clause which
                     # matches all primary keys, even across multiple columns
                     q = reduce(operator.or_, [reduce(operator.and_, [Q(**{p.name: r['attrs'][p.column]}) for p in pks]) for r in results['matches']])
@@ -623,7 +629,7 @@ class SphinxQuerySet(object):
                     for r in results['matches']:
                         if r['id'] in queryset:
                             r['passages'] = self._get_passages(queryset[r['id']], results['fields'], words)
-                
+
                 results = [SphinxProxy(queryset[r['id']], r) for r in results['matches'] if r['id'] in queryset]
             else:
                 results = []
@@ -649,13 +655,13 @@ class SphinxQuerySet(object):
                         cache.set('djangosphinx_content_type_%s' % ct, model_class, 604800)
 
                     pks = getattr(model_class._meta, 'pks', [model_class._meta.pk])
-                    
+
                     if results['matches'][0]['attrs'].get(pks[0].column):
                         for r in results['matches']:
                             if r['attrs']['content_type'] == ct:
                                 val = ', '.join([unicode(r['attrs'][p.column]) for p in pks])
                                 objcache[ct][r['id']] = r['id'] = val
-                    
+
                         q = reduce(operator.or_, [reduce(operator.and_, [Q(**{p.name: r['attrs'][p.column]}) for p in pks]) for r in results['matches'] if r['attrs']['content_type'] == ct])
                         queryset = self.get_query_set(model_class).filter(q)
                     else:
@@ -663,7 +669,7 @@ class SphinxQuerySet(object):
 
                     for o in queryset:
                         objcache[ct][', '.join([unicode(getattr(o, p.name)) for p in pks])] = o
-                
+
                 if self._passages:
                     for r in results['matches']:
                         ct = r['attrs']['content_type']
@@ -686,7 +692,7 @@ class SphinxQuerySet(object):
         if isinstance(self._index, unicode):
             self._index = self._index.encode('utf-8')
         passages_list = client.BuildExcerpts(docs, self._index, words, opts)
-        
+
         passages = {}
         c = 0
         for f in fields:
@@ -694,31 +700,33 @@ class SphinxQuerySet(object):
             c += 1
         return passages
 
+
 class EmptySphinxQuerySet(SphinxQuerySet):
     def _get_sphinx_results(self):
         return None
+
 
 class SphinxModelManager(object):
     def __init__(self, model, **kwargs):
         self.model = model
         self._index = kwargs.pop('index', model._meta.db_table)
         self._kwargs = kwargs
-    
+
     def _get_query_set(self):
         return SphinxQuerySet(self.model, index=self._index, **self._kwargs)
-    
+
     def get_index(self):
         return self._index
-    
+
     def all(self):
         return self._get_query_set()
-    
+
     def none(self):
         return self._get_query_set().none()
-    
+
     def filter(self, **kwargs):
         return self._get_query_set().filter(**kwargs)
-    
+
     def query(self, *args, **kwargs):
         return self._get_query_set().query(*args, **kwargs)
 
@@ -728,16 +736,18 @@ class SphinxModelManager(object):
     def geoanchor(self, *args, **kwargs):
         return self._get_query_set().geoanchor(*args, **kwargs)
 
+
 class SphinxInstanceManager(object):
     """Collection of tools useful for objects which are in a Sphinx index."""
     # TODO: deletion support
     def __init__(self, instance, index):
         self._instance = instance
         self._index = index
-        
+
     def update(self, **kwargs):
         assert sphinxapi.VER_COMMAND_SEARCH >= 0x113, "You must upgrade sphinxapi to version 0.98 to use UpdateAttributes."
         sphinxapi.UpdateAttributes(self._index, kwargs.keys(), dict(self.instance.pk, map(to_sphinx, kwargs.values())))
+
 
 class SphinxSearch(object):
     def __init__(self, index=None, using=None, **kwargs):
@@ -752,20 +762,20 @@ class SphinxSearch(object):
 
         self.model = None
         self.using = using
-    
+
     def __call__(self, index, **kwargs):
         warnings.warn('For non-model searches use a SphinxQuerySet instance.', DeprecationWarning)
         return SphinxQuerySet(index=index, using=self.using, **kwargs)
-    
+
     def __get__(self, instance, model, **kwargs):
         if instance:
             return SphinxInstanceManager(instance, self._index)
         return self._sphinx
-    
+
     def get_query_set(self):
         """Override this method to change the QuerySet used for config generation."""
         return self.model._default_manager.all()
-    
+
     def contribute_to_class(self, model, name, **kwargs):
         if self._index is None:
             self._index = model._meta.db_table
@@ -781,29 +791,31 @@ class SphinxSearch(object):
             setattr(model, '__sphinx_options__', self._options)
         else:
             model.__sphinx_options__.append(self._options)
-            
+
         setattr(model, name, self._sphinx)
+
 
 class SphinxRelationProxy(SphinxProxy):
     def count(self):
         return min(self._sphinx['attrs']['@count'], self._maxmatches)
-    
+
+
 class SphinxRelation(SphinxSearch):
     """
     Adds "related model" support to django-sphinx --
     http://code.google.com/p/django-sphinx/
     http://www.sphinxsearch.com/
-    
+
     Example --
-    
+
     class MySearch(SphinxSearch):
         myrelatedobject = SphinxRelation(RelatedModel)
         anotherone = SphinxRelation(AnotherModel)
         ...
-    
+
     class MyModel(models.Model):
         search = MySearch('index')
-    
+
     """
     def __init__(self, model=None, attr=None, sort='@count desc', **kwargs):
         if model:
@@ -811,7 +823,7 @@ class SphinxRelation(SphinxSearch):
             self._related_attr = attr or model.__name__.lower()
             self._related_sort = sort
         super(SphinxRelation, self).__init__(**kwargs)
-        
+
     def __get__(self, instance, instance_model, **kwargs):
         self._mode = instance._mode
         self._rankmode = instance._rankmode
@@ -845,9 +857,9 @@ class SphinxRelation(SphinxSearch):
             if self._extra:
                 qs = qs.extra(**self._extra)
             queryset = dict([(o.id, o) for o in qs])
-            results = [ SphinxRelationProxy(queryset[k['attrs']['@groupby']], k) \
+            results = [SphinxRelationProxy(queryset[k['attrs']['@groupby']], k) \
                         for k in results['matches'] \
-                        if k['attrs']['@groupby'] in queryset ]
+                        if k['attrs']['@groupby'] in queryset]
         self.__metadata = {
             'total': results['total'],
             'total_found': results['total_found'],

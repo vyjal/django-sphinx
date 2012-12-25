@@ -16,29 +16,32 @@ __all__ = ('generate_config_for_model', 'generate_config_for_models', 'generate_
 
 DJANGO_MINOR_VERSION = float(".".join([str(django.VERSION[0]), str(django.VERSION[1])]))
 
+
 def _get_database_engine():
     if DJANGO_MINOR_VERSION < 1.2:
         if settings.DATABASE_ENGINE == 'mysql':
             return settings.DATABASE_ENGINE
         elif settings.DATABASE_ENGINE.startswith('postgresql'):
-            return 'pgsql'    
+            return 'pgsql'
     else:
         if 'mysql' in settings.DATABASES['default']['ENGINE']:
             return 'mysql'
         elif 'postgresql' in settings.DATABASES['default']['ENGINE']:
             return 'pgsql'
-    raise ValueError, "Only MySQL and PostgreSQL engines are supported by Sphinx."
+    raise ValueError("Only MySQL and PostgreSQL engines are supported by Sphinx.")
+
 
 def _get_template(name, index=None):
     paths = [
         'sphinx/api%s' % sphinxapi.VER_COMMAND_SEARCH,
         'sphinx'
     ]
-    
+
     if index is not None:
         paths.insert(0, 'sphinx/%s' % index)
 
     return select_template(['%s/%s' % (path, name) for path in paths])
+
 
 def _is_sourcable_field(field):
     # We can use float fields in 0.98
@@ -81,6 +84,7 @@ DEFAULT_SPHINX_PARAMS.update({
     'sphinx_api_version': getattr(sphinxapi, 'VER_COMMAND_SEARCH', 0x113),
 })
 
+
 def get_index_context(index):
     params = DEFAULT_SPHINX_PARAMS
     params.update({
@@ -90,7 +94,8 @@ def get_index_context(index):
 
     return params
 
-def get_source_context(tables, index, valid_fields, attrs_string, related_fields, join_statements, table_name, content_types, 
+
+def get_source_context(tables, index, valid_fields, attrs_string, related_fields, join_statements, table_name, content_types,
     related_string_attributes,
     related_int_attributes,
     related_timestamp_attributes,
@@ -138,7 +143,7 @@ def get_source_context(tables, index, valid_fields, attrs_string, related_fields
         from django.contrib.gis.db.models import PointField
         params.update({
             'gis_columns': [f.column for f in valid_fields if isinstance(f, PointField)],
-            'srid': getattr(settings, 'GIS_SRID', 4326), # reasonable lat/lng default
+            'srid': getattr(settings, 'GIS_SRID', 4326),  # reasonable lat/lng default
         })
         if params['database_engine'] == 'pgsql' and params['gis_columns']:
             params['field_names'].extend(["radians(ST_X(ST_Transform(%(field_name)s, %(srid)s))) AS %(field_name)s_longitude, radians(ST_Y(ST_Transform(%(field_name)s, %(srid)s))) AS %(field_name)s_latitude" % {'field_name': f, 'srid': params['srid']} for f in params['gis_columns']])
@@ -147,12 +152,15 @@ def get_source_context(tables, index, valid_fields, attrs_string, related_fields
         pass
     return params
 
+
 def get_conf_context():
     params = DEFAULT_SPHINX_PARAMS
     return params
 
+
 def process_options_for_model(options=None):
     pass
+
 
 def _process_options_for_model_fields(options, model_fields, model_class):
     modified_fields = []
@@ -201,6 +209,7 @@ def _process_string_attributes_for_model_fields(string_attrs, model_class):
 
     return attrs_string
 
+
 def _get_sphinx_attr_type_for_field(field):
     string_fields = [CharField, EmailField, FilePathField, IPAddressField, SlugField, TextField, URLField]
     int_fields = [AutoField, IntegerField, BigIntegerField, PositiveIntegerField, PositiveSmallIntegerField, SmallIntegerField]
@@ -245,6 +254,7 @@ def _process_related_fields_for_model(related_field_names, model_class):
 
     return related_fields, join_statements, content_types
 
+
 def _process_related_attributes_for_model(related_attributes, model_class):
     related_string_attributes = []
     related_int_attributes = []
@@ -279,6 +289,7 @@ def _process_related_attributes_for_model(related_attributes, model_class):
 
 # Generate for single models
 
+
 def generate_config_for_model(model_class, index=None, sphinx_params={}):
     """
     Generates a sample configuration including an index and source for
@@ -287,41 +298,44 @@ def generate_config_for_model(model_class, index=None, sphinx_params={}):
     return generate_source_for_model(model_class, index, sphinx_params) + "\n\n" + \
     generate_index_for_model(model_class, index, sphinx_params)
 
+
 def generate_index_for_model(model_class, index=None, sphinx_params={}):
-    """
+    """\
     Generates an index configuration for a model. Respects template
     overrides from the user for individual models. Any files in settings
-    that are specified in the format `sphinx/Mymodel.index` 
-    will be loaded instead of the default source.conf and index.conf boilerplate 
-    provided with django-sphinx. Remember, models must be registered with a 
-    SphinxSearch() manager to be recognized by django-sphinx.
+    that are specified in the format `sphinx/Mymodel.index`
+    will be loaded instead of the default source.conf and index.conf boilerplate
+    provided with django-sphinx. Remember, models must be registered with a
+    SphinxSearch() manager to be recognized by django-sphinx.\
     """
     try:
         t = _get_template('%s_index.conf' % model_class.__name__, index)
     except:
         t = _get_template('index.conf', index)
-    
+
     if index is None:
         index = model_class._meta.db_table
-    
+
     params = get_index_context(index)
     params.update(sphinx_params)
-    
+
     c = Context(params)
-    
+
     return t.render(c)
+
 
 def generate_content_type_for_model(model_class):
     pass
 
+
 def generate_source_for_model(model_class, index=None, sphinx_params={}):
-    """
+    """\
     Generates a source configuration for a model. Respects template
     overrides from the user for individual models. Any files in settings
-    that are specified in the format `sphinx/Mymodel.source` will be loaded 
-    instead of the default source.conf boilerplate provided with django-sphinx. 
-    Remember, models must be registered with a SphinxSearch() manager to be 
-    recognized by django-sphinx.
+    that are specified in the format `sphinx/Mymodel.source` will be loaded
+    instead of the default source.conf boilerplate provided with django-sphinx.
+    Remember, models must be registered with a SphinxSearch() manager to be
+    recognized by django-sphinx.\
     """
     try:
         t = _get_template('%s_source.conf' % model_class.__name__, index)
@@ -330,17 +344,17 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
 
     def _the_tuple(f):
         return (
-            f.__class__, 
-            f.column, 
-            getattr(f.rel, 'to', None), 
-            f.choices, 
-            f.model._meta.db_table, # Verbose table name
-            '%s_%s' % (f.model._meta.db_table, f.column) # Alias
+            f.__class__,
+            f.column,
+            getattr(f.rel, 'to', None),
+            f.choices,
+            f.model._meta.db_table,  # Verbose table name
+            '%s_%s' % (f.model._meta.db_table, f.column)  # Alias
         )
-    
+
     model_fields = model_class._meta.fields
     options = model_class.__sphinx_options__
-    
+
     modified_fields, attrs_string = _process_options_for_model_fields(options, model_fields, model_class)
 
     try:
@@ -367,19 +381,19 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
         valid_fields = [_the_tuple(f) for f in modified_fields if _is_sourcable_field(f)]
     else:
         valid_fields = [_the_tuple(f) for f in model_fields if _is_sourcable_field(f)]
-    
+
     table = model_class._meta.db_table
-    
+
     if index is None:
         index = table
-        
+
     params = get_source_context(
-        [table], 
-        index, 
-        valid_fields, 
+        [table],
+        index,
+        valid_fields,
         attrs_string,
-        related_fields, 
-        join_statements, 
+        related_fields,
+        join_statements,
         model_class._meta.db_table,
         content_types,
         related_string_attributes,
@@ -396,10 +410,11 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
     params.update(sphinx_params)
 
     c = Context(params)
-    
+
     return t.render(c)
-    
+
 # Generate for multiple models (search UNIONs)
+
 
 def generate_config_for_models(model_classes, index=None, sphinx_params={}):
     """
@@ -408,45 +423,47 @@ def generate_config_for_models(model_classes, index=None, sphinx_params={}):
     """
     return generate_source_for_models(model_classes, index, sphinx_params) + "\n\n" + generate_index_for_models(model_classes, index, sphinx_params)
 
+
 def generate_index_for_models(model_classes, index=None, sphinx_params={}):
     """Generates a source configmration for a model."""
     t = _get_template('index-multiple.conf', index)
-    
+
     if index is None:
         index = '_'.join(m._meta.db_table for m in model_classes)
-    
+
     params = get_index_context(index)
     params.update(sphinx_params)
-    
+
     c = Context(params)
-    
+
     return t.render(c)
+
 
 def generate_source_for_models(model_classes, index=None, sphinx_params={}):
     """Generates a source configmration for a model."""
     t = _get_template('source-multiple.conf', index)
-    
+
     # We need to loop through each model and find only the fields that exist *exactly* the
     # same across models.
     def _the_tuple(f):
         return (f.__class__, f.column, getattr(f.rel, 'to', None), f.choices)
-    
+
     valid_fields = [_the_tuple(f) for f in model_classes[0]._meta.fields if _is_sourcable_field(f)]
     for model_class in model_classes[1:]:
         valid_fields = [_the_tuple(f) for f in model_class._meta.fields if _the_tuple(f) in valid_fields]
-    
+
     tables = []
     for model_class in model_classes:
         tables.append((model_class._meta.db_table, ContentType.objects.get_for_model(model_class)))
-    
+
     if index is None:
         index = '_'.join(m._meta.db_table for m in model_classes)
-    
+
     params = get_source_context(tables, index, valid_fields)
     params.update(sphinx_params)
 
     c = Context(params)
-    
+
     return t.render(c)
 
 
