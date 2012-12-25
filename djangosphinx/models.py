@@ -4,7 +4,8 @@ import time
 import struct
 import warnings
 import operator
-import apis.current as sphinxapi
+# import apis.current as sphinxapi
+from sphinxapi import sphinxapi
 import logging
 import re
 try:
@@ -14,6 +15,7 @@ except ImportError:
 
 from django.db.models.query import QuerySet, Q
 from django.conf import settings
+from django.core.cache import cache
 
 __all__ = ('SearchError', 'ConnectionError', 'SphinxSearch', 'SphinxRelation', 'SphinxQuerySet')
 
@@ -218,6 +220,7 @@ class SphinxQuerySet(object):
         self.model                  = model
         self._anchor                = {}
         self.__metadata             = {}
+        self.results_cts            = []
         
         self.using                  = using
         
@@ -527,6 +530,13 @@ class SphinxQuerySet(object):
             self._index = self._index.encode('utf-8')
         
         results = client.Query(self._query, self._index)
+
+        # Decode the encoded document ids, and if a content type is found set the string
+        # on the results list attributes (that likely got clobbered due to heterogenous index schema :\)
+        for result in results['matches']:
+            result = self._decode_document_id(result)
+
+        results['attrs'].append({'content_type': True})
         
         # The Sphinx API doesn't raise exceptions
 
@@ -553,6 +563,14 @@ class SphinxQuerySet(object):
             queryset = queryset.extra(**self._extra)
         return queryset.get(**kwargs)
 
+    def _decode_document_id(self, result):
+        doc_id = int(result['id'])
+        result_ct = (doc_id & 0xFF000000)>>24
+        result['attrs']['content_type'] = result_ct
+        result['id'] = doc_id & 0x00FFFFFF
+
+        return result
+
     def _get_results(self):
         results = self._get_sphinx_results()
         if not results:
@@ -567,7 +585,9 @@ class SphinxQuerySet(object):
             # XXX: The passages implementation has a potential gotcha if your id
             # column is not actually your primary key
             words = ' '.join([w['word'] for w in results['words']])
-            
+
+        
+
         if self.model:
             if results['matches']:
                 queryset = self.get_query_set(self.model)
@@ -592,6 +612,8 @@ class SphinxQuerySet(object):
                     queryset = queryset.filter(q)
                 else:
                     for r in results['matches']:
+                        # Decode the bitshifted document id into object id
+                        r = self._decode_document_id(r)
                         r['id'] = unicode(r['id'])
                     queryset = queryset.filter(pk__in=[r['id'] for r in results['matches']])
                 queryset = dict([(', '.join([unicode(getattr(o, p.attname)) for p in pks]), o) for o in queryset])
@@ -607,7 +629,7 @@ class SphinxQuerySet(object):
                 results = []
         else:
             "We did a query without a model, lets see if there's a content_type"
-            results['attrs'] = dict(results['attrs'])
+            results['attrs'] = dict(results['attrs'][0])
             if 'content_type' in results['attrs']:
                 "Now we have to do one query per content_type"
                 objcache = {}
@@ -616,7 +638,14 @@ class SphinxQuerySet(object):
                     r['id'] = unicode(r['id'])
                     objcache.setdefault(ct, {})[r['id']] = None
                 for ct in objcache:
-                    model_class = ContentType.objects.get(pk=ct).model_class()
+                    # Try to pull the content type out of cache...
+                    if cache.get('djangosphinx_content_type_%s' % ct):
+                        model_class = cache.get('djangosphinx_content_type_%s' % ct)
+                    else:
+                        model_class = ContentType.objects.get(pk=ct).model_class()
+                        # Cache for a week
+                        cache.set('djangosphinx_content_type_%s' % ct, model_class, 604800)
+
                     pks = getattr(model_class._meta, 'pks', [model_class._meta.pk])
                     
                     if results['matches'][0]['attrs'].get(pks[0].column):
