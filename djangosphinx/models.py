@@ -1,3 +1,5 @@
+# coding: utf-8
+
 import time
 
 import warnings
@@ -542,7 +544,7 @@ class SphinxQuerySet(object):
         for result in results['matches']:
             result = self._decode_document_id(result)
 
-        results['attrs'].append({'content_type': True})
+        #results['attrs'].append({'content_type': True})
 
         # The Sphinx API doesn't raise exceptions
 
@@ -626,63 +628,46 @@ class SphinxQuerySet(object):
                     # TODO: clean this up
                     for r in results['matches']:
                         if r['id'] in queryset:
-                            r['passages'] = self._get_passages(queryset[r['id']], results['fields'], words)
+                            r['passages'] = self._get_passages(queryset[r['id']], words)
 
                 results = [SphinxProxy(queryset[r['id']], r) for r in results['matches'] if r['id'] in queryset]
             else:
                 results = []
         else:
+            # Временно удалил часть кода.
+            #TODO: довести до ума
 
-            "We did a query without a model, lets see if there's a content_type"
-            if results['attrs']:
-                results['attrs'] = dict(results['attrs'][-1])
-            if 'content_type' in results['attrs']:
-                "Now we have to do one query per content_type"
-                objcache = {}
+            objects = {}
+            for r in results['matches']:
+                ct = r['attrs']['content_type']
+                r['id'] = unicode(r['id'])
+                objects.setdefault(ct, {})[r['id']] = None
+
+            for ct in objects:
+                model_class = ContentType.objects.get(pk=ct).model_class()
+
+
+                queryset = self.get_query_set(model_class).filter(pk__in=[key for key in objects[ct]])
+
+                for obj in queryset:
+                    objects[ct][unicode(obj.pk)] = obj
+
+            if self._passages:
                 for r in results['matches']:
                     ct = r['attrs']['content_type']
-                    r['id'] = unicode(r['id'])
-                    objcache.setdefault(ct, {})[r['id']] = None
-                for ct in objcache:
-                    # Try to pull the content type out of cache...
-                    if cache.get('djangosphinx_content_type_%s' % ct):
-                        model_class = cache.get('djangosphinx_content_type_%s' % ct)
-                    else:
-                        model_class = ContentType.objects.get(pk=ct).model_class()
-                        # Cache for a week
-                        cache.set('djangosphinx_content_type_%s' % ct, model_class, 604800)
+                    if r['id'] in objects[ct]:
+                        r['passages'] = self._get_passages(objects[ct][r['id']], words)
 
-                    pks = getattr(model_class._meta, 'pks', [model_class._meta.pk])
+            results = [SphinxProxy(objects[r['attrs']['content_type']][r['id']], r) for r in results['matches'] if r['id'] in objects[r['attrs']['content_type']]]
 
-                    if results['matches'][0]['attrs'].get(pks[0].column):
-                        for r in results['matches']:
-                            if r['attrs']['content_type'] == ct:
-                                val = ', '.join([unicode(r['attrs'][p.column]) for p in pks])
-                                objcache[ct][r['id']] = r['id'] = val
-
-                        q = reduce(operator.or_, [reduce(operator.and_, [Q(**{p.name: r['attrs'][p.column]}) for p in pks]) for r in results['matches'] if r['attrs']['content_type'] == ct])
-                        queryset = self.get_query_set(model_class).filter(q)
-                    else:
-                        queryset = self.get_query_set(model_class).filter(pk__in=[r['id'] for r in results['matches'] if r['attrs']['content_type'] == ct])
-
-                    for o in queryset:
-                        objcache[ct][', '.join([unicode(getattr(o, p.name)) for p in pks])] = o
-
-                if self._passages:
-                    for r in results['matches']:
-                        ct = r['attrs']['content_type']
-                        if r['id'] in objcache[ct]:
-                            r['passages'] = self._get_passages(objcache[ct][r['id']], results['fields'], words)
-                results = [SphinxProxy(objcache[r['attrs']['content_type']][r['id']], r) for r in results['matches'] if r['id'] in objcache[r['attrs']['content_type']]]
-            else:
-                results = results['matches']
-        self._result_cache = results
         return results
 
-    def _get_passages(self, instance, fields, words):
+    def _get_passages(self, instance, words):
+        #TODO: пока подсветка работает только для included_fields. ИСПРАВИТЬ!!!
         client = self._get_sphinx_client()
 
-        docs = [getattr(instance, f.replace('%s_' % instance._meta.db_table, '')) for f in fields]
+        docs = [getattr(instance, f) for f in instance.__sphinx_options__['included_fields']]
+
         if isinstance(self._passages_opts, dict):
             opts = self._passages_opts
         else:
@@ -693,7 +678,7 @@ class SphinxQuerySet(object):
 
         passages = {}
         c = 0
-        for f in fields:
+        for f in instance.__sphinx_options__['included_fields']:
             passages[f] = passages_list[c]
             c += 1
         return passages

@@ -1,3 +1,5 @@
+# coding: utf-8
+
 import django
 from django.conf import settings
 from django.template import Context
@@ -110,7 +112,7 @@ def get_source_context(tables, index, valid_fields, attrs_string, related_fields
         'source_name': index,
         'index_name': index,
         'database_engine': _get_database_engine(),
-        'field_names': ['%s.%s as %s' % (f[4], f[1], f[5]) for f in valid_fields],
+        'field_names': ['%s.%s' % (f[4], f[1]) for f in valid_fields],
         'related_fields': related_fields,
         'join_statements': join_statements,
         'attrs_string': attrs_string,
@@ -231,27 +233,37 @@ def _get_sphinx_attr_type_for_field(field):
 def _process_related_fields_for_model(related_field_names, model_class):
     # De-normalize specified related fields into the index for this source
     app_label = model_class._meta.app_label
-    model_class = model_class._meta.db_table
+    local_table = model_class._meta.db_table
     join_statements = []
     related_fields = []
     join_tables = []
     content_types = []
 
     for related in related_field_names:
-        model_name, field_name = related.split('.')
-        if model_name not in join_tables:
-            join_tables.append(model_name)
+        local_field_name, related_model_field_name = related.split('__')
+
+        local_field = model_class._meta.get_field(local_field_name)
+
+        local_field_column = local_field.column
+
+        related_model = local_field.rel.to
+        related_table = related_model._meta.db_table
+        related_column = local_field.rel.get_related_field().column
+        #TODO: проверять существование полей и моделей!!!
+
+        if related_table not in join_tables:
+            join_tables.append(related_table)
             join_statements.append(
-                'INNER JOIN %s_%s ON %s.id=%s_%s.id ' % (app_label, model_name, model_class, app_label, model_name)
+                'INNER JOIN %s ON %s.%s=%s.%s ' % (related_table, local_table, local_field_column, related_table, related_column)
             )
             # Add content type for related field model
-            content_type = ContentType.objects.get(app_label=app_label, model=model_name).pk
-            related_fields.append('%s as %s_%s_content_type' % (content_type, app_label, model_name))
-            content_types.append('%s_%s_content_type' % (app_label, model_name))
-        related_fields.append('%s_%s.%s as %s_%s_%s' % (app_label, model_name, field_name, app_label, model_name, field_name))
+            content_type = ContentType.objects.get(app_label=related_model._meta.app_label, model=related_model._meta.object_name.lower()).pk
+            related_fields.append('%s as %s_content_type' % (content_type, related_table))
+            content_types.append('%s_content_type' % related_table)
+
+        related_fields.append('%s.%s as %s__%s' % (related_table, related_model_field_name, local_field_name, related_model_field_name))
 
     return related_fields, join_statements, content_types
-
 
 def _process_related_attributes_for_model(related_attributes, model_class):
     related_string_attributes = []
