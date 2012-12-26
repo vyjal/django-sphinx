@@ -682,14 +682,14 @@ class SphinxQuerySet(object):
     def _get_passages(self, instance, fields, words):
         client = self._get_sphinx_client()
 
-        docs = [getattr(instance, f) for f in fields]
+        docs = [getattr(instance, f.replace('%s_' % instance._meta.db_table, '')) for f in fields]
         if isinstance(self._passages_opts, dict):
             opts = self._passages_opts
         else:
             opts = {}
         if isinstance(self._index, unicode):
             self._index = self._index.encode('utf-8')
-        passages_list = client.BuildExcerpts(docs, self._index, words, opts)
+        passages_list = client.BuildExcerpts(docs, instance.__sphinx_indexes__[0], words, opts)
 
         passages = {}
         c = 0

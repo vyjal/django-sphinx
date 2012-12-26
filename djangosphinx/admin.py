@@ -1,3 +1,6 @@
+# coding: utf-8
+
+from django.core.paginator import Paginator
 from django.contrib.admin.views.main import *
 from django.contrib.admin import ModelAdmin
 from djangosphinx.models import SphinxQuerySet
