@@ -8,7 +8,6 @@ from django.db import models
 from django.db.models.fields import *
 from django.contrib.contenttypes.models import ContentType
 
-# import djangosphinx.apis.current as sphinxapi
 from sphinxapi import sphinxapi
 from django.core.exceptions import ImproperlyConfigured
 from django.template.loader import select_template
@@ -16,8 +15,6 @@ from django.template.loader import select_template
 __all__ = ('generate_config_for_model', 'generate_config_for_models', 'generate_sphinx_config')
 
 DJANGO_MINOR_VERSION = float(".".join([str(django.VERSION[0]), str(django.VERSION[1])]))
-
-DOCUMENT_ID_SHIFT = 24
 
 def _get_database_engine():
     if DJANGO_MINOR_VERSION < 1.2:
@@ -34,16 +31,16 @@ def _get_database_engine():
 
 
 def _get_template(name, index=None):
+
     paths = [
-        'sphinx/api%s' % sphinxapi.VER_COMMAND_SEARCH,
-        'sphinx'
+        'sphinx/api%s/' % sphinxapi.VER_COMMAND_SEARCH,
+        'sphinx/'
     ]
 
     if index is not None:
-        paths.insert(0, 'sphinx/%s' % index)
+        paths.insert(0, 'sphinx/%s_' % index)
 
-    return select_template(['%s/%s' % (path, name) for path in paths])
-
+    return select_template(['%s%s' % (path, name) for path in paths])
 
 def _is_sourcable_field(field):
     # We can use float fields in 0.98
@@ -58,6 +55,8 @@ def _is_sourcable_field(field):
     return False
 
 # No trailing slashes on paths
+
+DOCUMENT_ID_SHIFT = 24
 
 if DJANGO_MINOR_VERSION < 1.2:
     DEFAULT_SPHINX_PARAMS = {
@@ -102,31 +101,21 @@ def get_conf_context():
     return params
 
 
-def process_options_for_model(options=None):
-    pass
-
-
 def _get_sphinx_attr_type_for_field(field):
-    string_fields = [CharField, EmailField, FilePathField, IPAddressField, SlugField, TextField, URLField]
-    int_fields = [AutoField, IntegerField, PositiveIntegerField, PositiveSmallIntegerField, SmallIntegerField]
-    big_int_fields = [BigIntegerField]
-    float_fields = [DecimalField, FloatField]
-    timestamp_fields = [DateField, DateTimeField, TimeField]
-    bool_fields = [BooleanField, NullBooleanField]
-    ft = type(field)
+    types = dict(
+        string=(CharField, EmailField, FilePathField, IPAddressField, SlugField, TextField, URLField),
+        uint=(AutoField, IntegerField, PositiveIntegerField, PositiveSmallIntegerField, SmallIntegerField),
+        bigint=(BigIntegerField),
+        float=(DecimalField, FloatField),
+        timestamp=(DateField, DateTimeField, TimeField),
+        bool=(BooleanField, NullBooleanField),
+    )
 
-    if ft in string_fields:
-        return 'string'
-    elif ft in int_fields:
-        return 'uint'
-    elif ft in big_int_fields:
-        return 'bigint'
-    elif ft in float_fields:
-        return 'float'
-    elif ft in timestamp_fields:
-        return 'timestamp'
-    elif ft in bool_fields:
-        return 'bool'
+    for t in types:
+        if isinstance(field, types[t]):
+            return t
+
+    raise TypeError(u'Неизвестный тип поля `%s`' % type(field))
 
 
 # Generate for single models
@@ -148,10 +137,8 @@ def generate_index_for_model(model_class, index=None, sphinx_params={}):
     provided with django-sphinx. Remember, models must be registered with a
     SphinxSearch() manager to be recognized by django-sphinx.\
     """
-    try:
-        t = _get_template('%s_index.conf' % model_class.__name__, index)
-    except:
-        t = _get_template('index.conf', index)
+
+    t = _get_template('index.conf', index)
 
     if index is None:
         index = model_class._meta.db_table
@@ -205,7 +192,7 @@ def _process_options_for_model_fields(options, model_fields, model_class):
         stored_attrs_list = list(options['stored_string_attributes'])
     else:
         stored_attrs_list = options.get('stored_attributes', [])
-        
+
     for column in stored_attrs_list:
         field = model_class._meta.get_field(column)
         if field and not hasattr(field.rel, 'to') and not type(field) == AutoField:
@@ -329,10 +316,8 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
     Remember, models must be registered with a SphinxSearch() manager to be
     recognized by django-sphinx.\
     """
-    try:
-        t = _get_template('%s_source.conf' % model_class.__name__, index)
-    except:
-        t = _get_template('source.conf', index)
+
+    t = _get_template('source.conf', index)
 
     def _the_tuple(f):
         return (
