@@ -200,7 +200,12 @@ def _process_options_for_model_fields(options, model_fields, model_class):
 
     # наполняем список stored полей, так же исключая related-поля,
     # и первичный ключ, если он числовой (автоинкремент)
-    stored_attrs_list = options.get('stored_attributes', [])
+    if 'stored_string_attributes' in options:
+        warnings.warn('`stored_string_attributes` is deprecated. Use `stored_attributes` instead.', DeprecationWarning)
+        stored_attrs_list = list(options['stored_string_attributes'])
+    else:
+        stored_attrs_list = options.get('stored_attributes', [])
+        
     for column in stored_attrs_list:
         field = model_class._meta.get_field(column)
         if field and not hasattr(field.rel, 'to') and not type(field) == AutoField:
