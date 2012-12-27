@@ -260,47 +260,45 @@ class SphinxQuerySet(object):
             or (isinstance(k, slice) and (k.start is None or k.start >= 0) and (k.stop is None or k.stop >= 0)), \
             "Negative indexing is not supported."
 
-        # Если взять любой элемент списка по индексу
-        # offset и limit меняются, но не возвращаются к предыдущему значению
-        # вот это-то мы сейчас поправим
-        # сохраним значения
-        offset = self._offset
-        limit = self._limit
-        sliced = None
-
         if self._result_cache is not None:
             # Check to see if this is a portion of an already existing result cache
             if type(k) == slice:
                 start = k.start
-                stop = k.stop - k.start
                 if start < self._offset or k.stop > self._limit:
                     self._result_cache = None
                 else:
-                    start = start - self._offset
-                    sliced = self._get_data()[start: k.stop]
+                    return self._get_data()[k.start: k.stop]
             else:
                 if k not in range(self._offset, self._limit + self._offset):
                     self._result_cache = None
                 else:
-                    sliced = self._get_data()[k - self._offset]
+                    return self._get_data()[k - self._offset]
+
         if type(k) == slice:
-            self._offset = k.start
-            self._limit = k.stop - k.start
-            sliced = self._get_data()
+            self._offset = k.start if k.start is not None else 0
+            try:
+                self._limit = k.stop - k.start
+            except TypeError:
+                self._limit = k.stop if k.stop else self._maxmatches - self._offset
+
+            if not self._offset and self._limit == self._maxmatches:
+                return self._get_data()
+
+            return self._get_data(False)
         else:
-            self._offset = k
-            self._limit = 1
-            sliced = self._get_data()[0]
-
-        # а теперь вернём всё как было
-        self._offset = offset
-        self._limit = limit
-
-        return sliced
+            return self._get_data(False)[k]
 
     def _format_options(self, **kwargs):
-        kwargs['rankmode'] = getattr(sphinxapi, kwargs.get('rankmode', 'SPH_RANK_NONE'), None)
-        kwargs['mode'] = getattr(sphinxapi, kwargs.get('mode', 'SPH_MATCH_ALL'), sphinxapi.SPH_MATCH_ALL)
+        # перезаписываем rankmode и mode только если не установлены или заданы явно
+        if self._rankmode is None or 'rankmode' in kwargs:
+            kwargs['rankmode'] = getattr(sphinxapi,
+                                        kwargs.get('rankmode', getattr(settings,  'SPH_RANK_NONE', None)),
+                                        sphinxapi.SPH_RANK_NONE)
+
+        if self._mode is None or 'mode' in kwargs:
+            kwargs['mode'] = getattr(sphinxapi,
+                                    kwargs.get('mode', getattr(settings, 'SPHINX_MATCH_MODE', None)),
+                                    sphinxapi.SPH_MATCH_ALL)
 
         kwargs = dict([('_%s' % (key,), value) for key, value in kwargs.iteritems() if key in self.available_kwargs])
         return kwargs
@@ -432,6 +430,8 @@ class SphinxQuerySet(object):
         c.__dict__.update(self.__dict__.copy())
         for k, v in kwargs.iteritems():
             setattr(c, k, v)
+        # почистим кеш в новом объекте, раз уж параметры запроса изменились
+        c._result_cache = None
         return c
 
     def _sphinx(self):
@@ -441,11 +441,16 @@ class SphinxQuerySet(object):
         return self.__metadata
     _sphinx = property(_sphinx)
 
-    def _get_data(self):
+    def _get_data(self, need_cache=True):
         assert(self._index)
         # need to find a way to make this work yet
-        if self._result_cache is None:
-            self._result_cache = self._get_results()
+        if need_cache:
+            print 'from cache'
+            if self._result_cache is None:
+                self._result_cache = self._get_results()
+        else:
+            return self._get_results()
+
         return self._result_cache
 
     def _get_sphinx_results(self):
