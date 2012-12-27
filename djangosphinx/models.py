@@ -445,7 +445,6 @@ class SphinxQuerySet(object):
         assert(self._index)
         # need to find a way to make this work yet
         if need_cache:
-            print 'from cache'
             if self._result_cache is None:
                 self._result_cache = self._get_results()
         else:
