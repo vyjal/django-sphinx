@@ -4,7 +4,7 @@ import time
 
 import warnings
 import operator
-# import apis.current as sphinxapi
+
 from sphinxapi import sphinxapi
 import logging
 import re
@@ -259,6 +259,15 @@ class SphinxQuerySet(object):
         assert (not isinstance(k, slice) and (k >= 0)) \
             or (isinstance(k, slice) and (k.start is None or k.start >= 0) and (k.stop is None or k.stop >= 0)), \
             "Negative indexing is not supported."
+
+        # Если взять любой элемент списка по индексу
+        # offset и limit меняются, но не возвращаются к предыдущему значению
+        # вот это-то мы сейчас поправим
+        # сохраним значения
+        offset = self._offset
+        limit = self._limit
+        sliced = None
+
         if self._result_cache is not None:
             # Check to see if this is a portion of an already existing result cache
             if type(k) == slice:
@@ -268,20 +277,26 @@ class SphinxQuerySet(object):
                     self._result_cache = None
                 else:
                     start = start - self._offset
-                    return self._get_data()[start: k.stop]
+                    sliced = self._get_data()[start: k.stop]
             else:
                 if k not in range(self._offset, self._limit + self._offset):
                     self._result_cache = None
                 else:
-                    return self._get_data()[k - self._offset]
+                    sliced = self._get_data()[k - self._offset]
         if type(k) == slice:
             self._offset = k.start
             self._limit = k.stop - k.start
-            return self._get_data()
+            sliced = self._get_data()
         else:
             self._offset = k
             self._limit = 1
-            return self._get_data()[0]
+            sliced = self._get_data()[0]
+
+        # а теперь вернём всё как было
+        self._offset = offset
+        self._limit = limit
+
+        return sliced
 
     def _format_options(self, **kwargs):
         kwargs['rankmode'] = getattr(sphinxapi, kwargs.get('rankmode', 'SPH_RANK_NONE'), None)
@@ -430,7 +445,7 @@ class SphinxQuerySet(object):
         assert(self._index)
         # need to find a way to make this work yet
         if self._result_cache is None:
-            self._result_cache = list(self._get_results())
+            self._result_cache = self._get_results()
         return self._result_cache
 
     def _get_sphinx_results(self):
@@ -635,7 +650,6 @@ class SphinxQuerySet(object):
             else:
                 results = []
         else:
-            # Временно удалил часть кода.
             #TODO: довести до ума
 
             objects = {}
@@ -647,9 +661,17 @@ class SphinxQuerySet(object):
             for ct in objects:
                 model_class = ContentType.objects.get(pk=ct).model_class()
 
+                pks = getattr(model_class._meta, 'pks', [model_class._meta.pk])
+                if results['matches'][0]['attrs'].get(pks[0].column):
+                    for r in results['matches']:
+                        if r['attrs']['content_type'] == ct:
+                            val = ', '.join([unicode(r['attrs'][p.column]) for p in pks])
+                            objects[ct][r['id']] = r['id'] = val
 
-
-                queryset = self.get_query_set(model_class).filter(pk__in=[key for key in objects[ct]])
+                    q = reduce(operator.or_, [reduce(operator.and_, [Q(**{p.name: r['attrs'][p.column]}) for p in pks]) for r in results['matches'] if r['attrs']['content_type'] == ct])
+                    queryset = self.get_query_set(model_class).filter(q)
+                else:
+                    queryset = self.get_query_set(model_class).filter(pk__in=[key for key in objects[ct]])
 
                 for obj in queryset:
                     objects[ct][unicode(obj.pk)] = obj
