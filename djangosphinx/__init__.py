@@ -1,3 +1,5 @@
+# coding: utf-8
+
 """
 Sphinx Search Engine ORM for Django models
 http://www.sphinxsearch.com/

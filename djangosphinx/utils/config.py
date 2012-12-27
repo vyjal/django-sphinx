@@ -10,12 +10,14 @@ from django.contrib.contenttypes.models import ContentType
 
 # import djangosphinx.apis.current as sphinxapi
 from sphinxapi import sphinxapi
+from django.core.exceptions import ImproperlyConfigured
 from django.template.loader import select_template
 
 __all__ = ('generate_config_for_model', 'generate_config_for_models', 'generate_sphinx_config')
 
 DJANGO_MINOR_VERSION = float(".".join([str(django.VERSION[0]), str(django.VERSION[1])]))
 
+DOCUMENT_ID_SHIFT = 24
 
 def _get_database_engine():
     if DJANGO_MINOR_VERSION < 1.2:
@@ -95,64 +97,6 @@ def get_index_context(index):
     return params
 
 
-def get_source_context(tables, index, valid_fields, attrs_string, related_fields, join_statements, table_name, content_types,
-    related_string_attributes,
-    related_int_attributes,
-    related_timestamp_attributes,
-    related_bool_attributes,
-    related_flt_dec_attributes,
-    content_type=None):
-
-    # remove the doc id
-    doc_id = valid_fields.pop(0)
-
-    params = DEFAULT_SPHINX_PARAMS
-    params.update({
-        'tables': tables,
-        'source_name': index,
-        'index_name': index,
-        'database_engine': _get_database_engine(),
-        'field_names': ['%s.%s' % (f[4], f[1]) for f in valid_fields],
-        'related_fields': related_fields,
-        'join_statements': join_statements,
-        'attrs_string': attrs_string,
-        'group_columns': ['%s' % f[5] for f in valid_fields if f[2] or isinstance(f[0], models.BooleanField) or isinstance(f[0], models.IntegerField)],
-        'date_columns': ['%s' % f[5] for f in valid_fields if issubclass(f[0], models.DateTimeField) or issubclass(f[0], models.DateField)],
-        'float_columns': ['%s' % f[5] for f in valid_fields if isinstance(f[0], models.FloatField) or isinstance(f[0], models.DecimalField)],
-        'content_types': content_types,
-        'related_string_attributes': related_string_attributes,
-        'related_timestamp_attributes': related_timestamp_attributes,
-        'related_bool_attributes': related_bool_attributes,
-        'related_flt_dec_attributes': related_flt_dec_attributes,
-        'related_int_attributes': related_int_attributes
-    })
-
-    if content_type is not None:
-        params['document_id'] = '%s<<%i|%s.%s as %s' % (content_type.id, 24, doc_id[4], doc_id[1], doc_id[5])
-
-        # Use string attributes to store the content type if available, otherwise
-        # use integer pk for the model in the content type table for lookup
-
-        if sphinxapi.VER_COMMAND_SEARCH >= 0x117:
-            ct = '.'.join([content_type.app_label, content_type.model])
-            params['field_names'].append("'%s' as %s_content_type" % (str(ct), table_name))
-            params['content_types'].append("%s_content_type" % (table_name))
-        else:
-            params['field_names'].append("%s as content_type" % content_type.id)
-    try:
-        from django.contrib.gis.db.models import PointField
-        params.update({
-            'gis_columns': [f.column for f in valid_fields if isinstance(f, PointField)],
-            'srid': getattr(settings, 'GIS_SRID', 4326),  # reasonable lat/lng default
-        })
-        if params['database_engine'] == 'pgsql' and params['gis_columns']:
-            params['field_names'].extend(["radians(ST_X(ST_Transform(%(field_name)s, %(srid)s))) AS %(field_name)s_longitude, radians(ST_Y(ST_Transform(%(field_name)s, %(srid)s))) AS %(field_name)s_latitude" % {'field_name': f, 'srid': params['srid']} for f in params['gis_columns']])
-    except ImportError:
-        # GIS not supported
-        pass
-    return params
-
-
 def get_conf_context():
     params = DEFAULT_SPHINX_PARAMS
     return params
@@ -162,57 +106,10 @@ def process_options_for_model(options=None):
     pass
 
 
-def _process_options_for_model_fields(options, model_fields, model_class):
-    modified_fields = []
-    attrs_string = []
-    # Remove optionally excluded fields from indexing
-    try:
-        excluded_fields = options['excluded_fields']
-        if 'id' in excluded_fields:
-            excluded_fields.pop(excluded_fields.index('id'))
-        [modified_fields.append(f) for f in model_fields if f.name not in excluded_fields]
-    except:
-        pass
-    # Remove fields not specified as included
-    try:
-        included_fields = options['included_fields']
-        if 'id' not in included_fields:
-            included_fields.insert(0, 'id')
-        [modified_fields.append(f) for f in model_fields if f.name in included_fields]
-    except:
-        pass
-    try:
-        string_attrs = options['stored_string_attributes']
-        if 'id' in string_attrs:
-            # id can't be an attr
-            string_attrs.pop(string_attrs.index('id'))
-        attrs_string = _process_string_attributes_for_model_fields(string_attrs, model_class)
-    except:
-        pass
-
-    if len(modified_fields) > 0:
-        return modified_fields, attrs_string
-    else:
-        return [], attrs_string
-
-
-def _process_string_attributes_for_model_fields(string_attrs, model_class):
-    attrs_string = []
-    model_fields = model_class._meta.fields
-    db_table = model_class._meta.db_table
-
-    for field in model_fields:
-        if field.name in string_attrs:
-            field_type = _get_sphinx_attr_type_for_field(field)
-            if field_type == 'string':
-                attrs_string.append('%s_%s' % (db_table, field.name))
-
-    return attrs_string
-
-
 def _get_sphinx_attr_type_for_field(field):
     string_fields = [CharField, EmailField, FilePathField, IPAddressField, SlugField, TextField, URLField]
-    int_fields = [AutoField, IntegerField, BigIntegerField, PositiveIntegerField, PositiveSmallIntegerField, SmallIntegerField]
+    int_fields = [AutoField, IntegerField, PositiveIntegerField, PositiveSmallIntegerField, SmallIntegerField]
+    big_int_fields = [BigIntegerField]
     float_fields = [DecimalField, FloatField]
     timestamp_fields = [DateField, DateTimeField, TimeField]
     bool_fields = [BooleanField, NullBooleanField]
@@ -221,7 +118,9 @@ def _get_sphinx_attr_type_for_field(field):
     if ft in string_fields:
         return 'string'
     elif ft in int_fields:
-        return 'int'
+        return 'uint'
+    elif ft in big_int_fields:
+        return 'bigint'
     elif ft in float_fields:
         return 'float'
     elif ft in timestamp_fields:
@@ -230,76 +129,7 @@ def _get_sphinx_attr_type_for_field(field):
         return 'bool'
 
 
-def _process_related_fields_for_model(related_field_names, model_class):
-    # De-normalize specified related fields into the index for this source
-    app_label = model_class._meta.app_label
-    local_table = model_class._meta.db_table
-    join_statements = []
-    related_fields = []
-    join_tables = []
-    content_types = []
-
-    for related in related_field_names:
-        local_field_name, related_model_field_name = related.split('__')
-
-        local_field = model_class._meta.get_field(local_field_name)
-
-        local_field_column = local_field.column
-
-        related_model = local_field.rel.to
-        related_table = related_model._meta.db_table
-        related_column = local_field.rel.get_related_field().column
-        #TODO: проверять существование полей и моделей!!!
-
-        if related_table not in join_tables:
-            join_tables.append(related_table)
-            join_statements.append(
-                'INNER JOIN %s ON %s.%s=%s.%s ' % (related_table, local_table, local_field_column, related_table, related_column)
-            )
-            # Add content type for related field model
-            content_type = ContentType.objects.get(app_label=related_model._meta.app_label, model=related_model._meta.object_name.lower()).pk
-            related_fields.append('%s as %s_content_type' % (content_type, related_table))
-            content_types.append('%s_content_type' % related_table)
-
-        related_fields.append('%s.%s as %s__%s' % (related_table, related_model_field_name, local_field_name, related_model_field_name))
-
-    return related_fields, join_statements, content_types
-
-def _process_related_attributes_for_model(related_attributes, model_class):
-    related_string_attributes = []
-    related_int_attributes = []
-    related_timestamp_attributes = []
-    related_bool_attributes = []
-    related_flt_dec_attributes = []
-    model_field_names = []
-    model_fields = model_class._meta.fields
-    app_label = model_class._meta.app_label
-
-    for field in model_fields:
-        model_field_names.append(field.name)
-
-    for attribute in related_attributes:
-        model_name, field_name = attribute.split('.')
-        attr_name = '%s_%s_%s' % (app_label, model_name, field_name)
-        if field_name in model_field_names:
-            model_attr = model_fields[model_field_names.index(field_name)]
-            field_type = _get_sphinx_attr_type_for_field(model_attr)
-            if field_type == 'string':
-                related_string_attributes.append(attr_name)
-            elif field_type == 'int':
-                related_int_attributes.append(attr_name)
-            elif field_type == 'float':
-                related_flt_dec_attributes.append(attr_name)
-            elif field_type == 'timestamp':
-                related_timestamp_attributes.append(attr_name)
-            elif field_type == 'bool':
-                related_bool_attributes.append(attr_name)
-
-    return related_string_attributes, related_int_attributes, related_timestamp_attributes, related_bool_attributes, related_flt_dec_attributes
-
 # Generate for single models
-
-
 def generate_config_for_model(model_class, index=None, sphinx_params={}):
     """
     Generates a sample configuration including an index and source for
@@ -338,6 +168,153 @@ def generate_content_type_for_model(model_class):
     pass
 
 
+def _process_options_for_model_fields(options, model_fields, model_class):
+    fields = []
+    indexes = []
+    stored_attrs = {}
+
+    # get model pk fields (supports compositepks)
+    pks = [pk for pk in getattr(model_class._meta, 'pks', [model_class._meta.pk])]
+
+    # добавляем в список явно указанные поля
+    # исключая related-поля. Для них есть отдельный список
+    included_fields = options.get('included_fields', [])
+    for field in pks:
+        # собираем в список все поля кроме private_key
+        if field.column not in included_fields and type(field) != AutoField:
+            included_fields.insert(0, field.column)
+        if type(field) == AutoField or _get_sphinx_attr_type_for_field(field) in ['uint', 'bigint']:
+            indexes.append(field)
+        else:
+            raise TypeError(u'В данный момент не поддерживаются первичные ключи, нечислового типа')
+
+    [fields.append(f) for f in model_fields if not hasattr(f.rel, 'to') and f.name in included_fields]
+
+    # удаляем исключенные поля
+    excluded_fields = options.get('excluded_fields', [])
+    for field in pks:
+        if field.column in excluded_fields:
+            excluded_fields.pop(excluded_fields.index(field.column))
+    [fields.pop(fields.index(f)) for f in model_fields if f.name in excluded_fields]
+
+
+    # наполняем список stored полей, так же исключая related-поля,
+    # и первичный ключ, если он числовой (автоинкремент)
+    stored_attrs_list = options.get('stored_attributes', [])
+    for column in stored_attrs_list:
+        field = model_class._meta.get_field(column)
+        if field and not hasattr(field.rel, 'to') and not type(field) == AutoField:
+            attr_type = _get_sphinx_attr_type_for_field(field)
+            stored_attrs.setdefault(attr_type, []).append(field.column)
+
+    return (fields, indexes, stored_attrs)
+
+
+def _process_related_fields_for_model(options, model_class):
+    related_field_names = options.get('related_fields', [])
+
+    # De-normalize specified related fields into the index for this source
+    app_label = model_class._meta.app_label
+    local_table = model_class._meta.db_table
+    join_statements = []
+    related_fields = []
+    join_tables = []
+    content_types = []
+
+    for related in related_field_names:
+        local_field_name, related_model_field_name = related.split('__')
+
+        local_field = model_class._meta.get_field(local_field_name)
+
+        local_field_column = local_field.column
+
+        related_model = local_field.rel.to
+        related_table = related_model._meta.db_table
+        related_column = local_field.rel.get_related_field().column
+        #TODO: проверять существование полей и моделей!!!
+
+        if related_table not in join_tables:
+            join_tables.append(related_table)
+            join_statements.append(
+                'INNER JOIN %s ON %s.%s=%s.%s ' % (related_table, local_table, local_field_column, related_table, related_column)
+            )
+            # Add content type for related field model
+            content_type = ContentType.objects.get(app_label=related_model._meta.app_label, model=related_model._meta.object_name.lower()).pk
+            related_fields.append('%s as %s_content_type' % (content_type, related_table))
+            content_types.append('%s_content_type' % related_table)
+
+        related_fields.append('%s.%s as %s__%s' % (related_table, related_column, local_field_name, related_model_field_name))
+
+    return (related_fields, join_statements, content_types)
+
+
+def _process_related_attributes_for_model(options, model_class):
+    related_attributes_list = options.get('related_stored_attributes', [])
+
+    related_attributes = {}
+
+    for attribute in related_attributes_list:
+        local_field_name, related_model_field_name = attribute.split('__')
+
+        local_field = model_class._meta.get_field(local_field_name)
+
+        related_model = local_field.rel.to
+        related_field = related_model._meta.get_field(related_model_field_name)
+
+        related_field_type = _get_sphinx_attr_type_for_field(related_field)
+
+        related_attributes.setdefault(related_field_type, []).append(attribute)
+
+    return related_attributes
+
+def get_source_context(tables, index_name, fields, indexes,
+                        related_fields, join_statements, content_types,
+                        stored_attrs, stored_related_attrs,
+                        document_content_type):
+
+    # remove the doc id
+    if len(indexes) > 1:
+        raise NotImplementedError (u'Поддержка генерации ID документа из составного индекса пока отсутствует')
+    else:
+        doc_id = indexes[0]
+
+    context = DEFAULT_SPHINX_PARAMS
+    context.update({
+        'tables': tables,
+        'source_name': index_name,
+        'index_name': index_name,
+        'database_engine': _get_database_engine(),
+
+        'fields': ['%s.%s' % (f.model._meta.db_table, f.column) for f in fields],
+        'related_fields': related_fields,
+        'join_statements': join_statements,
+        'content_types': content_types,
+
+        'stored_attrs': stored_attrs,
+        'stored_related_attrs': stored_related_attrs,
+
+        'document_id': '%s<<%i|%s.%s' % (document_content_type.id,
+                                               DOCUMENT_ID_SHIFT,
+                                               doc_id.model._meta.db_table,
+                                               doc_id.column)
+    })
+
+    try:
+        #TODO: разобраться в этой магии
+        from django.contrib.gis.db.models import PointField
+        context.update({
+            'gis_columns': [f.column for f in fields if isinstance(f, PointField)],
+            'srid': getattr(settings, 'GIS_SRID', 4326),  # reasonable lat/lng default
+        })
+        if context['database_engine'] == 'pgsql' and context['gis_columns']:
+            context['fields'].extend(["radians(ST_X(ST_Transform(%(field_name)s, %(srid)s))) AS %(field_name)s_longitude, radians(ST_Y(ST_Transform(%(field_name)s, %(srid)s))) AS %(field_name)s_latitude" % {'field_name': f, 'srid': context['srid']} for f in context['gis_columns']])
+    except ImportError:
+        # GIS not supported
+        pass
+
+    return context
+
+
 def generate_source_for_model(model_class, index=None, sphinx_params={}):
     """\
     Generates a source configuration for a model. Respects template
@@ -365,66 +342,40 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
     model_fields = model_class._meta.fields
     options = model_class.__sphinx_options__
 
-    modified_fields, attrs_string = _process_options_for_model_fields(options, model_fields, model_class)
+    fields, indexes, stored_attrs = _process_options_for_model_fields(options, model_fields, model_class)
 
-    try:
-        related_field_names = options['related_fields']
-        related_fields, join_statements, content_types = _process_related_fields_for_model(related_field_names, model_class)
-    except:
-        join_statements = []
-        related_fields = []
-        content_types = []
-
-    # Related attribute processing
-    try:
-        related_attributes = options['related_stored_attributes']
-        related_string_attributes, related_int_attributes, related_timestamp_attributes, related_bool_attributes, related_flt_dec_attributes = \
-        _process_related_attributes_for_model(related_attributes, model_class)
-    except:
-        related_string_attributes = []
-        related_timestamp_attributes = []
-        related_bool_attributes = []
-        related_flt_dec_attributes = []
-        related_int_attributes = []
-
-    if len(modified_fields) > 0:
-        valid_fields = [_the_tuple(f) for f in modified_fields if _is_sourcable_field(f)]
-    else:
-        valid_fields = [_the_tuple(f) for f in model_fields if _is_sourcable_field(f)]
+    related_fields, join_statements, content_types = _process_related_fields_for_model(options, model_class)
+    related_stored_attrs = _process_related_attributes_for_model(options, model_class)
 
     table = model_class._meta.db_table
-
     if index is None:
         index = table
 
-    params = get_source_context(
-        [table],
+    context = get_source_context(
+        ['table'],
         index,
-        valid_fields,
-        attrs_string,
+        fields,
+        indexes,
         related_fields,
         join_statements,
-        model_class._meta.db_table,
         content_types,
-        related_string_attributes,
-        related_int_attributes,
-        related_timestamp_attributes,
-        related_bool_attributes,
-        related_flt_dec_attributes,
+        stored_attrs,
+        related_stored_attrs,
         ContentType.objects.get_for_model(model_class),
     )
-    params.update({
+
+    context.update({
         'table_name': table,
         'primary_key': model_class._meta.pk.column,
     })
-    params.update(sphinx_params)
+    context.update(sphinx_params)
 
-    c = Context(params)
+    c = Context(context)
 
     return t.render(c)
 
 # Generate for multiple models (search UNIONs)
-
+# Похоже, это пока не работает
 
 def generate_config_for_models(model_classes, index=None, sphinx_params={}):
     """
