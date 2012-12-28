@@ -16,8 +16,19 @@ Usage
 The following is some example usage::
 
 	from djangosphinx.models import SphinxSearch
+
+	class RelatedModel(models.Model)
+	    name = models.CharField(max_length = 100)
+
+	class M2MModel(models.Model)
+	    name = models.CharField(max_length = 100)
 	
 	class MyModel(models.Model):
+
+	    related_field = models.ForeignKey(RelatedModel)
+	    m2m_field = models.ManyToManyField(M2MModel)
+	    bool_field = models.BooleanField()
+
 	    search = SphinxSearch() # optional: defaults to db_table
 	    # If your index name does not match MyModel._meta.db_table
 	    # Note: You can only generate automatic configurations from the ./manage.py script
@@ -36,12 +47,63 @@ The following is some example usage::
 	        rankmode='SPH_RANK_NONE',
 	    )
 
+	    # все возможные способы указания полей
+	    mysearch = SphinxSearch(
+	        'included_fields': [    # список индексируемых полей
+	            'field1',           # для нестроковых полей stored-атрибуты
+	            'field2',           # создаются автоматически
+	            'field3',           # за исключением первичного ключа (primary_key)
+	        ],
+	        'excluded_fields': [    # если список included_fields не заполнен, по-умолчанию индексируются все поля модели
+	            'field4',           # укажите названия полей, которые нужно исключить из индекса, в этом списке
+	            'field5',           # ВАЖНО: этот список имеет приоритет над included_fields, и поля, указанные в нём
+	                                # будут удалены из included_fields
+	        ],
+	        'stored_attributes': [  # если нужно сделать stored строковые поля,
+                'string_field1',    # их следует указывать в данном списке
+                'field1',           # если поле не является строковым и уже указано в included_fields
+                'field2',           # оно будет проигнорировано. если его нет в included_fields, оно будет туда
+                                    # добавлено
+            ],
+            'related_fields': [     # в этом списке необходимо указать список полей типа FK и One2One
+                'related_field',    # это позволит фильтровать по списку объектов из связанной таблице (см. ниже)
+            ],
+            'mva_fields': {         # Список MVA атрибутов (поля M2M)
+                'sections',
+                'subsections',
+            },
+	    )
+
 	queryset = MyModel.search.query('query')
 	results1 = queryset.order_by('@weight', '@id', 'my_attribute')
 	results2 = queryset.filter(my_attribute=5)
 	results3 = queryset.filter(my_other_attribute=[5, 3,4])
 	results4 = queryset.exclude(my_attribute=5)[0:10]
 	results5 = queryset.count()
+
+    # ForeignKey, OneToOneField, ManyToManyField можно искать как по списку идентификаторов соответствующих моделей,
+    # так и по обекту или QuerySet
+
+	# ForeignKey or OneToOneField lookup
+	related_model_item = RelatedModel.objects.get(pk=1)
+	related_model_items = RelatedModel.objects.get(pk__in=[1,2])
+
+	results6 = queryset.filter(related_field=related_model_item)
+	results7 = queryset.filter(related_field=100)
+	results8 = queryset.filter(related_field__in=related_model_items)
+	results9 = queryset.filter(related_field__in=[4,5,6])
+
+	# ManyToManyField lookup
+	m2m_related_model_item = M2MModel.objects.get(pk=1)
+	m2m_related_model_items = M2MModel.objects.filter(pk__in=[1,2,3])
+
+	results10 = queryset.filter(m2m_field=m2m_related_model_item)
+	results11 = queryset.filter(m2m_field=23)
+	results12 = queryset.filter(m2m_field__in=m2m_related_model_items)
+	results13 = queryset.filter(m2m_field__in=[2,6,9])
+
+	# Other fields lookup
+	result14 = queryset.filter(bool_field=False)
 
 	# as of 2.0 you can now access an attribute to get the weight and similar arguments
 	for result in results1:
@@ -58,7 +120,7 @@ Some additional methods:
 * all() (does nothing)
 * select_related() (passed to the queryset)
 * group_by(field, field, field)
-* set_options(index='', weights={}, weights=[], mode='SPH_MODE_*', rankmode='SPH_MATCH_*')
+* set_options(index='', weights={}, weights=[], mode='SPH_MODE_*', rankmode='SPH_MATCH_*', passages=True, passages_opts={})
 
 The django-sphinx layer also supports some basic querying over multiple indexes. To use this you first need to understand the rules of a UNION. As of djangosphinx 3.0, it is no longer necessary to store a "content_type" attribute in your index, as it is encoded in the 32-bit doc_id along with object pk. Additionally, ContentType queries are stored in cache under the format "djangosphinx_content_type_xxx", where xxx is the pk of the ContentType object. In general, you needn't bother with these cache values - just be aware if you're trying to set a cache key for an unrelated object/value to something of this format, you're going to get some strange results.
 
