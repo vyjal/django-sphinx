@@ -13,9 +13,12 @@ try:
 except ImportError:
     from django.utils import _decimal as decimal  # for Python 2.3
 
-from django.db.models.query import Q
+from django.db import models
+from django.db.models.fields.related import RelatedField
+from django.db.models.query import Q, QuerySet
 from django.conf import settings
 from django.core.cache import cache
+
 
 __all__ = ('SearchError', 'ConnectionError', 'SphinxSearch', 'SphinxRelation', 'SphinxQuerySet')
 
@@ -199,6 +202,9 @@ def to_sphinx(value):
         return float(value)
     return int(value)
 
+FILTER_LIST_OPERATIONS = ['in', 'range']
+FILTER_CMP_OPERATIONS = ['exact', 'iexact', 'gt', 'lt', 'gte', 'lte']
+
 
 class SphinxQuerySet(object):
     available_kwargs = ('rankmode', 'mode', 'weights', 'maxmatches', 'passages', 'passages_opts')
@@ -335,16 +341,74 @@ class SphinxQuerySet(object):
         warnings.warn('`mode()` is deprecated. Use `set_options(on_index=foo)` instead.', DeprecationWarning)
         return self._clone(_index=index)
 
-    # only works on attributes
-    def filter(self, **kwargs):
-        filters = self._filters.copy()
+    def _check_field(self, field, obj):
+        print type(field), type(obj)
+        if not isinstance(field, RelatedField):
+            raise TypeError('An object can only be compared with Related field')
+
+        related_model = field.rel.to
+
+        if not isinstance(obj, related_model):
+            raise TypeError('Field `%s` is not associated with the model `%s`' % (field.name, type(obj)))
+
+    def _process_filter(self, filters, **kwargs):
         for k, v in kwargs.iteritems():
-            if hasattr(v, '__iter__'):
+            print type(v)
+            if isinstance(v, (QuerySet, models.Model)):
+                print 'is object or queryset'
+                parts = k.split('__')
+                parts_len = len(parts)
+
+                if parts_len > 1 and parts[-1] in FILTER_LIST_OPERATIONS: # условие или relation
+                    print 'is list'
+                    if isinstance(v, models.Model):  # список из одного элемента
+                        v = [v.pk]
+                    else: # QuerySet. А как иначе-то?
+                        if parts_len > 2:  # deep related
+                            raise NotImplementedError('Related model fields lookup not supported')
+                        else:
+                            field = self.model._meta.get_field(parts[0])
+
+                            # придётся всё-таки сделать запрос до проверки типа аргумента :(
+                            self._check_field(field, v[0])
+
+                            v = [obj.pk for obj in v]
+                else: # единственный объект
+                    print 'is single obj'
+                    if not isinstance(v, models.Model):
+                        raise TypeError('Comparison operations require a single object, not a list')
+
+                    if (parts_len > 1 and parts[-1] in FILTER_CMP_OPERATIONS) or parts_len == 1:
+                        print 'exact'
+                        if parts_len > 2: # deep related
+                            raise Exception
+                        else:
+                            field = self.model._meta.get_field(parts[0])
+
+                            self._check_field(field, v)
+
+                            v = [v.pk]
+
+                    print 'end exact'
+
+
+            elif hasattr(v, '__iter__'):
                 v = list(v)
             elif not (isinstance(v, list) or isinstance(v, tuple)):
                 v = [v]
             filters.setdefault(k, []).extend(map(to_sphinx, v))
-        return self._clone(_filters=filters)
+        return filters
+
+    # only works on attributes
+    def filter(self, **kwargs):
+        filters = self._filters.copy()
+        return self._clone(_filters=self._process_filter(filters, **kwargs))
+
+    # only works on attributes
+    def exclude(self, **kwargs):
+        filters = self._excludes.copy()
+        return self._clone(_excludes=self._process_filter(filters, **kwargs))
+
 
     def geoanchor(self, lat_attr, lng_attr, lat, lng):
         assert sphinxapi.VER_COMMAND_SEARCH >= 0x113, "You must upgrade sphinxapi to version 0.98 to use Geo Anchoring."
@@ -360,16 +424,7 @@ class SphinxQuerySet(object):
         c.__dict__.update(self.__dict__.copy())
         return c
 
-    # only works on attributes
-    def exclude(self, **kwargs):
-        filters = self._excludes.copy()
-        for k, v in kwargs.iteritems():
-            if hasattr(v, 'next'):
-                v = list(v)
-            elif not (isinstance(v, list) or isinstance(v, tuple)):
-                v = [v]
-            filters.setdefault(k, []).extend(map(to_sphinx, v))
-        return self._clone(_excludes=filters)
+
 
     def escape(self, value):
         return re.sub(r"([=\(\)|\-!@~\"&/\\\^\$\=])", r"\\\1", value)
@@ -477,7 +532,7 @@ class SphinxQuerySet(object):
             for name, values in filter_list.iteritems():
                 parts = len(name.split('__'))
                 if parts > 2:
-                    raise NotImplementedError('Related object and/or multiple field lookups not supported')
+                    raise NotImplementedError('Related object lookups not supported')
                 elif parts == 2:
                     # The float handling for __gt and __lt is kind of ugly..
                     name, lookup = name.split('__', 1)
@@ -504,17 +559,17 @@ class SphinxQuerySet(object):
                         if is_float:
                             _max = float(_max)
                         args = (name, _max, value, exclude)
-                    elif lookup == 'in':
-                        args = (name, values, exclude)
                     elif lookup == 'range':
                         args = (name, values[0], values[1], exclude)
+                    elif lookup in ['in', 'exact', 'iexact']:
+                        pass
                     else:
                         raise NotImplementedError('Related object and/or field lookup "%s" not supported' % lookup)
                     if is_float:
                         client.SetFilterFloatRange(*args)
                     elif not exclude and self.model and name == self.model._meta.pk.column:
                         client.SetIDRange(*args[1:3])
-                    elif lookup == 'in':
+                    elif lookup in ['in', 'exact', 'iexact']:
                         client.SetFilter(name, values, exclude)
                     else:
                         client.SetFilterRange(*args)
@@ -792,6 +847,7 @@ class SphinxSearch(object):
             self._index = model._meta.db_table
         self._sphinx = SphinxModelManager(model, index=self._index, **self._kwargs)
         self.model = model
+
         if getattr(model, '__sphinx_indexes__', None) is None:
             setattr(model, '__sphinx_indexes__', [self._index])
         else:
