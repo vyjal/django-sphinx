@@ -6,6 +6,7 @@ from django.template import Context
 
 from django.db import models
 from django.db.models.fields import *
+from django.db.models.fields.related import ManyToManyField, OneToOneField
 from django.contrib.contenttypes.models import ContentType
 
 from sphinxapi import sphinxapi
@@ -109,6 +110,7 @@ def _get_sphinx_attr_type_for_field(field):
         float=(DecimalField, FloatField),
         timestamp=(DateField, DateTimeField, TimeField),
         bool=(BooleanField, NullBooleanField),
+        #multi=(ManyToManyField,),
     )
 
     for t in types:
@@ -199,7 +201,76 @@ def _process_options_for_model_fields(options, model_fields, model_class):
             attr_type = _get_sphinx_attr_type_for_field(field)
             stored_attrs.setdefault(attr_type, []).append(field.column)
 
+
+
     return (fields, indexes, stored_attrs)
+
+def _process_mva_fields_for_model(options, model_class, content_type, indexes):
+
+    if len(indexes) > 1:
+        raise NotImplementedError (u'Поддержка генерации ID документа из составного индекса пока отсутствует')
+    else:
+        doc_id = indexes[0]
+
+    mvas = dict()
+
+    model_table = model_class._meta.db_table
+    model_pk = doc_id.column
+
+    mva_fields = options.get('mva_fields', [])
+
+    for field in model_class._meta.many_to_many:
+        if field.name in mva_fields:
+
+            m2m_model_class = getattr(model_class, field.name).through
+            m2m_table = m2m_model_class._meta.db_table
+            related_model_class = field.rel.to
+            related_table = related_model_class._meta.db_table
+            model_target_column = model_class._meta.get_field(field.m2m_target_field_name()).column
+            related_target_column = related_model_class._meta.get_field(field.m2m_reverse_target_field_name()).column
+            m2m_model_column = field.m2m_column_name()
+            m2m_related_column = m2m_model_class._meta.get_field(field.m2m_reverse_field_name()).column
+
+            related_tag_column = related_model_class._meta.get_field(mva_fields[field.name]).column
+
+            query = ''.join(['SELECT %s<<%i|%s.%s, %s.%s ' % (content_type.pk,
+                                                      DOCUMENT_ID_SHIFT,
+
+                                                      model_table,
+                                                      model_pk,
+
+                                                      m2m_table,
+                                                      m2m_related_column,
+                    #                                  related_table,
+                    #                                  related_tag_column,
+                                                      ),
+
+                    'FROM %s ' % (model_table),
+                    'INNER JOIN %s ON %s.%s=%s.%s ' % (m2m_table,
+
+                                                       m2m_table,
+                                                       m2m_model_column,
+                                                       model_table,
+                                                       model_target_column,
+                                                       ),
+
+                    #'INNER JOIN %s ON %s.%s=%s.%s' % (related_table,
+
+                    #                                   related_table,
+                    #                                   related_target_column,
+                    #                                   m2m_table,
+                    #                                   m2m_related_column
+                    #                                   ),
+                    ])
+
+            mvas[field.name] = {
+                'type': 'uint',  # пока предполагаем, что M2M будет исключительно  int
+                'tag': field.name,
+                'source_type': 'query',
+                'query': query,
+                }
+
+    return mvas
 
 
 def _process_related_fields_for_model(options, model_class):
@@ -259,12 +330,11 @@ def _process_related_attributes_for_model(options, model_class):
 
     return related_attributes
 
-def get_source_context(tables, index_name, fields, indexes,
+def get_source_context(tables, index_name, fields, indexes, mva_fields,
                         related_fields, join_statements, content_types,
                         stored_attrs, stored_related_attrs,
                         document_content_type):
 
-    # remove the doc id
     if len(indexes) > 1:
         raise NotImplementedError (u'Поддержка генерации ID документа из составного индекса пока отсутствует')
     else:
@@ -278,6 +348,7 @@ def get_source_context(tables, index_name, fields, indexes,
         'database_engine': _get_database_engine(),
 
         'fields': ['%s.%s' % (f.model._meta.db_table, f.column) for f in fields],
+        'mva_fields': mva_fields,
         'related_fields': related_fields,
         'join_statements': join_statements,
         'content_types': content_types,
@@ -329,10 +400,13 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
             '%s_%s' % (f.model._meta.db_table, f.column)  # Alias
         )
 
+    content_type = ContentType.objects.get_for_model(model_class)
     model_fields = model_class._meta.fields
     options = model_class.__sphinx_options__
 
     fields, indexes, stored_attrs = _process_options_for_model_fields(options, model_fields, model_class)
+
+    mva_fields = _process_mva_fields_for_model(options, model_class, content_type, indexes)
 
     related_fields, join_statements, content_types = _process_related_fields_for_model(options, model_class)
     related_stored_attrs = _process_related_attributes_for_model(options, model_class)
@@ -346,12 +420,13 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
         index,
         fields,
         indexes,
+        mva_fields,
         related_fields,
         join_statements,
         content_types,
         stored_attrs,
         related_stored_attrs,
-        ContentType.objects.get_for_model(model_class),
+        content_type,
     )
 
     context.update({
