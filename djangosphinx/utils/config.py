@@ -6,7 +6,7 @@ from django.template import Context
 
 from django.db import models
 from django.db.models.fields import *
-from django.db.models.fields.related import ManyToManyField, OneToOneField
+from django.db.models.fields.related import ForeignKey, ManyToManyField, OneToOneField
 from django.contrib.contenttypes.models import ContentType
 
 from sphinxapi import sphinxapi
@@ -117,7 +117,8 @@ def _get_sphinx_attr_type_for_field(field):
         if isinstance(field, types[t]):
             return t
 
-    raise TypeError(u'Неизвестный тип поля `%s`' % type(field))
+
+    raise TypeError(u'Unknown field type `%s`' % type(field))
 
 
 # Generate for single models
@@ -152,11 +153,6 @@ def generate_index_for_model(model_class, index=None, sphinx_params={}):
 
     return t.render(c)
 
-
-def generate_content_type_for_model(model_class):
-    pass
-
-
 def _process_options_for_model_fields(options, model_fields, model_class):
     fields = []
     indexes = []
@@ -168,47 +164,75 @@ def _process_options_for_model_fields(options, model_fields, model_class):
     # добавляем в список явно указанные поля
     # исключая related-поля. Для них есть отдельный список
     included_fields = options.get('included_fields', [])
-    for field in pks:
-        # собираем в список все поля кроме private_key
-        if field.column not in included_fields and type(field) != AutoField:
-            included_fields.insert(0, field.column)
-        if type(field) == AutoField or _get_sphinx_attr_type_for_field(field) in ['uint', 'bigint']:
-            indexes.append(field)
-        else:
-            raise TypeError(u'В данный момент не поддерживаются первичные ключи, нечислового типа')
-
-    [fields.append(f) for f in model_fields if not hasattr(f.rel, 'to') and f.name in included_fields]
-
-    # удаляем исключенные поля
     excluded_fields = options.get('excluded_fields', [])
-    for field in pks:
-        if field.column in excluded_fields:
-            excluded_fields.pop(excluded_fields.index(field.column))
-    [fields.pop(fields.index(f)) for f in model_fields if f.name in excluded_fields]
 
-
-    # наполняем список stored полей, так же исключая related-поля,
-    # и первичный ключ, если он числовой (автоинкремент)
     if 'stored_string_attributes' in options:
         warnings.warn('`stored_string_attributes` is deprecated. Use `stored_attributes` instead.', DeprecationWarning)
         stored_attrs_list = list(options['stored_string_attributes'])
     else:
         stored_attrs_list = options.get('stored_attributes', [])
 
-    for column in stored_attrs_list:
+
+    for field in pks:
+        # собираем в список все поля кроме private_key
+        if field.column not in included_fields and type(field) != AutoField:
+            included_fields.insert(0, field.column)
+        # убираем из исключенных все private keys
+        if field.column in excluded_fields:
+            excluded_fields.pop(excluded_fields.index(field.column))
+        # убираем private keys из списка stored атрибутов
+        if field.column in stored_attrs_list:
+            stored_attrs_list.pop(stored_attrs_list.index(field.column))
+
+        # собираем массив числовых private_keys
+        if type(field) == AutoField or _get_sphinx_attr_type_for_field(field) in ['uint', 'bigint']:
+            indexes.append(field)
+        else:
+            raise TypeError('Currently, non-numeric primary key type is not supported')
+
+    # удаляем из списка stored все related поля. а так же autoincrement
+    for column in stored_attrs_list[:]:
         field = model_class._meta.get_field(column)
-        if field and not hasattr(field.rel, 'to') and not type(field) == AutoField:
+        if hasattr(field.rel, 'to') or type(field) == AutoField:
+            stored_attrs_list.pop(stored_attrs_list.index(column))
+
+    # добавляем stored поля в список выбранных, если они там отсутствуют
+    [included_fields.append(f) for f in stored_attrs_list if f not in included_fields]
+
+    [fields.append(f) for f in model_fields if not hasattr(f.rel, 'to') and f.name in included_fields]
+
+    # удаляем исключенные поля
+    [fields.pop(fields.index(f)) for f in model_fields if f.name in excluded_fields]
+
+    # если included_fields не заполнен - выбираем все поля модели
+    if not fields:
+        fields = [f for f in model_class._meta.fields if f not in pks and f not in excluded_fields]
+        indexes = pks
+
+    # наполняем список stored полей
+
+    # добавляем в stored все нестроковые поля, не являющиеся private keys
+    for field in fields:
+        if field not in pks and _get_sphinx_attr_type_for_field(field) != 'string':
             attr_type = _get_sphinx_attr_type_for_field(field)
             stored_attrs.setdefault(attr_type, []).append(field.column)
 
+    # добавляем в stored заданные вручную строковые поля
+    for column in stored_attrs_list:
+        field = model_class._meta.get_field(column)
+        if _get_sphinx_attr_type_for_field(field) == 'string':
+            if sphinxapi.VER_COMMAND_SEARCH < 0x117:
+                raise ImproperlyConfigured('Stored string attributes require a Sphinx API for version 1.10beta or above.')
 
+            attr_type = _get_sphinx_attr_type_for_field(field)
+            stored_attrs.setdefault(attr_type, []).append(field.column)
 
     return (fields, indexes, stored_attrs)
 
 def _process_mva_fields_for_model(options, model_class, content_type, indexes):
 
     if len(indexes) > 1:
-        raise NotImplementedError (u'Поддержка генерации ID документа из составного индекса пока отсутствует')
+        raise NotImplementedError ('Support for generating document identifier of a composite index is not yet available')
     else:
         doc_id = indexes[0]
 
@@ -222,49 +246,38 @@ def _process_mva_fields_for_model(options, model_class, content_type, indexes):
     for field in model_class._meta.many_to_many:
         if field.name in mva_fields:
 
+            # а теперь магия :)
             m2m_model_class = getattr(model_class, field.name).through
             m2m_table = m2m_model_class._meta.db_table
             related_model_class = field.rel.to
-            related_table = related_model_class._meta.db_table
             model_target_column = model_class._meta.get_field(field.m2m_target_field_name()).column
-            related_target_column = related_model_class._meta.get_field(field.m2m_reverse_target_field_name()).column
             m2m_model_column = field.m2m_column_name()
             m2m_related_column = m2m_model_class._meta.get_field(field.m2m_reverse_field_name()).column
 
-            related_tag_column = related_model_class._meta.get_field(mva_fields[field.name]).column
+            related_target_field = related_model_class._meta.get_field(field.m2m_reverse_target_field_name())
 
             query = ''.join(['SELECT %s<<%i|%s.%s, %s.%s ' % (content_type.pk,
-                                                      DOCUMENT_ID_SHIFT,
+                                                              DOCUMENT_ID_SHIFT,
 
-                                                      model_table,
-                                                      model_pk,
+                                                              model_table,
+                                                              model_pk,
 
-                                                      m2m_table,
-                                                      m2m_related_column,
-                    #                                  related_table,
-                    #                                  related_tag_column,
-                                                      ),
+                                                              m2m_table,
+                                                              m2m_related_column,
+                                                              ),
 
-                    'FROM %s ' % (model_table),
-                    'INNER JOIN %s ON %s.%s=%s.%s ' % (m2m_table,
+                            'FROM %s ' % (model_table),
+                            'INNER JOIN %s ON %s.%s=%s.%s ' % (m2m_table,
 
-                                                       m2m_table,
-                                                       m2m_model_column,
-                                                       model_table,
-                                                       model_target_column,
-                                                       ),
-
-                    #'INNER JOIN %s ON %s.%s=%s.%s' % (related_table,
-
-                    #                                   related_table,
-                    #                                   related_target_column,
-                    #                                   m2m_table,
-                    #                                   m2m_related_column
-                    #                                   ),
-                    ])
+                                                               m2m_table,
+                                                               m2m_model_column,
+                                                               model_table,
+                                                               model_target_column,
+                                                               ),
+                            ])
 
             mvas[field.name] = {
-                'type': 'uint',  # пока предполагаем, что M2M будет исключительно  int
+                'type': _get_sphinx_attr_type_for_field(related_target_field),
                 'tag': field.name,
                 'source_type': 'query',
                 'query': query,
@@ -272,63 +285,26 @@ def _process_mva_fields_for_model(options, model_class, content_type, indexes):
 
     return mvas
 
-
-def _process_related_fields_for_model(options, model_class):
+def _process_related_fields(fields, options, model_class):
     related_field_names = options.get('related_fields', [])
 
-    # De-normalize specified related fields into the index for this source
-    app_label = model_class._meta.app_label
     local_table = model_class._meta.db_table
-    join_statements = []
     related_fields = []
-    join_tables = []
-    content_types = []
+    related_stored_attrs = {}
 
     for related in related_field_names:
-        local_field_name, related_model_field_name = related.split('__')
+        field = model_class._meta.get_field(related)
 
-        local_field = model_class._meta.get_field(local_field_name)
+        if not isinstance(field, (ForeignKey, OneToOneField)):
+            raise TypeError('Related_fields list can only contain fields of ForeignKey and OneToOneField types')
 
-        local_field_column = local_field.column
+        related_fields.append('%s.%s as %s' % (local_table, field.column, field.name))
 
-        related_model = local_field.rel.to
-        related_table = related_model._meta.db_table
-        related_column = local_field.rel.get_related_field().column
-        #TODO: проверять существование полей и моделей!!!
-
-        if related_table not in join_tables:
-            join_tables.append(related_table)
-            join_statements.append(
-                'INNER JOIN %s ON %s.%s=%s.%s ' % (related_table, local_table, local_field_column, related_table, related_column)
-            )
-            # Add content type for related field model
-            content_type = ContentType.objects.get(app_label=related_model._meta.app_label, model=related_model._meta.object_name.lower()).pk
-            related_fields.append('%s as %s_content_type' % (content_type, related_table))
-            content_types.append('%s_content_type' % related_table)
-
-        related_fields.append('%s.%s as %s__%s' % (related_table, related_column, local_field_name, related_model_field_name))
-
-    return (related_fields, join_statements, content_types)
+        related_stored_attrs.setdefault('uint', []).append(field.name)
 
 
-def _process_related_attributes_for_model(options, model_class):
-    related_attributes_list = options.get('related_stored_attributes', [])
+    return (related_fields, related_stored_attrs)
 
-    related_attributes = {}
-
-    for attribute in related_attributes_list:
-        local_field_name, related_model_field_name = attribute.split('__')
-
-        local_field = model_class._meta.get_field(local_field_name)
-
-        related_model = local_field.rel.to
-        related_field = related_model._meta.get_field(related_model_field_name)
-
-        related_field_type = _get_sphinx_attr_type_for_field(related_field)
-
-        related_attributes.setdefault(related_field_type, []).append(attribute)
-
-    return related_attributes
 
 def get_source_context(tables, index_name, fields, indexes, mva_fields,
                         related_fields, join_statements, content_types,
@@ -336,7 +312,7 @@ def get_source_context(tables, index_name, fields, indexes, mva_fields,
                         document_content_type):
 
     if len(indexes) > 1:
-        raise NotImplementedError (u'Поддержка генерации ID документа из составного индекса пока отсутствует')
+        raise NotImplementedError ('Support for generating document identifier of a composite index is not yet available')
     else:
         doc_id = indexes[0]
 
@@ -408,8 +384,11 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
 
     mva_fields = _process_mva_fields_for_model(options, model_class, content_type, indexes)
 
-    related_fields, join_statements, content_types = _process_related_fields_for_model(options, model_class)
-    related_stored_attrs = _process_related_attributes_for_model(options, model_class)
+    #related_fields, join_statements, content_types = _process_related_fields_for_model(options, model_class)
+    #related_stored_attrs = _process_related_attributes_for_model(options, model_class)
+    related_fields = join_statements = content_types = related_stored_attrs = []
+
+    related_fields, related_stored_attrs = _process_related_fields(fields, options, model_class)
 
     table = model_class._meta.db_table
     if index is None:
