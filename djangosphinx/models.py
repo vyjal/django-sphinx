@@ -232,7 +232,7 @@ class SphinxQuerySet(object):
         self._maxmatches            = 1000
         self._result_cache          = None
         self._fields_cache          = {}
-        self._mode                  = sphinxapi.SPH_MATCH_ALL
+        self._mode                  = sphinxapi.SPH_MATCH_ANY
         self._rankmode              = getattr(sphinxapi, 'SPH_RANK_PROXIMITY_BM25', None)
         self.model                  = model
         self._anchor                = {}
@@ -307,7 +307,7 @@ class SphinxQuerySet(object):
         if self._mode is None or 'mode' in kwargs:
             kwargs['mode'] = getattr(sphinxapi,
                                     kwargs.get('mode', getattr(settings, 'SPHINX_MATCH_MODE', None)),
-                                    sphinxapi.SPH_MATCH_ALL)
+                                    sphinxapi.SPH_MATCH_ANY)
 
         kwargs = dict([('_%s' % (key,), value) for key, value in kwargs.iteritems() if key in self.available_kwargs])
         return kwargs
