@@ -36,15 +36,20 @@ class Search(models.Model):
     search = SphinxSearch(
         options={
             'included_fields': [
-                'name',
                 'text',
 
                 'datetime',
                 'bool',
                 'uint',
             ],
+            'excluded_fields': [
+                'excluded_field2',
+            ],
             'stored_attributes': [
                 'stored_string',
+            ],
+            'stored_fields': [
+                'excluded_field',
             ],
             'related_fields': [
                 'related',
