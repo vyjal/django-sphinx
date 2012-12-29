@@ -15,6 +15,7 @@
 
 Пример настройки и использования::
 
+    from django.db import models
     from djangosphinx.models import SphinxSearch
 
     class RelatedModel(models.Model)
@@ -119,7 +120,7 @@
 Список MVA-атрибутов.
 
 **WARNING**
-Будье осторожны в использовании stored-атрибутов, особенно текстовых. Все атрибуты sphinx загружает в память, поэтому поля, содержащие много текста, могут съесть всю память Вашего сервера.
+Будьте осторожны в использовании stored-атрибутов, особенно текстовых. Все атрибуты sphinx загружает в память, поэтому поля, содержащие много текста, могут съесть всю память Вашего сервера.
 Заполняйте `included_fields` только необходимыми полями, но не оставляйте его пустым.
 Я Вас предупредил!
 
@@ -154,6 +155,9 @@
     # или QuerySet
     results9 = queryset.filter(related_field__in=related_queryset)
 
+    # однако, можно и так
+    results10 = queryset.filter(related_field__in=related_item)
+
 
     # ManyToManyField
     m2m_item = M2MModel.objects.get(pk=1)
@@ -161,9 +165,10 @@
 
     # аналогично для MVA-атрибутов
     results11 = queryset.filter(m2m_field=23)
-    results10 = queryset.filter(m2m_field=m2m_item)
+    results12 = queryset.filter(m2m_field=m2m_item)
     results13 = queryset.filter(m2m_field__in=[2,6,9])
-    results12 = queryset.filter(m2m_field__in=m2m_queryset)
+    results14 = queryset.filter(m2m_field__in=m2m_queryset)
+    results15 = queryset.filter(m2m_field__in=m2m_item)
 
 
     # as of 2.0 you can now access an attribute to get the weight and similar arguments
