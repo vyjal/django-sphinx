@@ -174,6 +174,14 @@ def _process_options_for_model_fields(options, model_fields, model_class):
     else:
         stored_attrs_list = options.get('stored_attributes', [])
 
+    stored_fields_list = options.get('stored_fields', [])
+
+    stored_fields = [f for f in stored_fields_list if
+                                                            get_sphinx_attr_type_for_field(
+                                                                model_class._meta.get_field(f)
+                                                            ) == 'string']
+
+    stored_attrs_list = [f for f in stored_attrs_list if f not in stored_fields]
 
     for field in pks:
         # собираем в список все поля кроме private_key
@@ -204,7 +212,9 @@ def _process_options_for_model_fields(options, model_fields, model_class):
     [fields.append(f) for f in model_fields if not hasattr(f.rel, 'to') and f.name in included_fields]
 
     # удаляем исключенные поля
-    [fields.pop(fields.index(f)) for f in model_fields if f.name in excluded_fields]
+    [fields.pop(fields.index(f)) for f in model_fields if f.name in excluded_fields and f in fields]
+    [stored_attrs_list.pop(fields.index(f)) for f in excluded_fields if f in stored_attrs_list]
+    [stored_fields_list.pop(fields.index(f)) for f in excluded_fields if f in stored_fields_list]
 
     # если included_fields не заполнен - выбираем все поля модели
     if not fields:
@@ -229,7 +239,7 @@ def _process_options_for_model_fields(options, model_fields, model_class):
             attr_type = get_sphinx_attr_type_for_field(field)
             stored_attrs.setdefault(attr_type, []).append(field.column)
 
-    return (fields, indexes, stored_attrs)
+    return (fields, indexes, stored_attrs, stored_fields)
 
 def _process_mva_fields_for_model(options, model_class, content_type, indexes):
 
@@ -310,7 +320,7 @@ def _process_related_fields(fields, options, model_class):
 
 def get_source_context(tables, index_name, fields, indexes, mva_fields,
                         related_fields, join_statements, content_types,
-                        stored_attrs, stored_related_attrs,
+                        stored_attrs, stored_string_fields, stored_related_attrs,
                         document_content_type):
 
     if len(indexes) > 1:
@@ -332,6 +342,7 @@ def get_source_context(tables, index_name, fields, indexes, mva_fields,
         'content_types': content_types,
 
         'stored_attrs': stored_attrs,
+        'stored_string_fields': stored_string_fields,
         'stored_related_attrs': stored_related_attrs,
 
         'document_id': '%s<<%i|%s.%s' % (document_content_type.id,
@@ -382,7 +393,7 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
     model_fields = model_class._meta.fields
     options = model_class.__sphinx_options__
 
-    fields, indexes, stored_attrs = _process_options_for_model_fields(options, model_fields, model_class)
+    fields, indexes, stored_attrs, stored_fields = _process_options_for_model_fields(options, model_fields, model_class)
 
     mva_fields = _process_mva_fields_for_model(options, model_class, content_type, indexes)
 
@@ -406,6 +417,7 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
         join_statements,
         content_types,
         stored_attrs,
+        stored_fields,
         related_stored_attrs,
         content_type,
     )

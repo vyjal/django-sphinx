@@ -1,19 +1,19 @@
-This is a layer that functions much like the Django ORM does except it works on top of the Sphinx (http://www.sphinxsearch.com) full-text search engine.
-
-Please Note: You will need to create your own sphinx indexes and install sphinx on your server to use this app.
-
-*There will no longer be release packages available. Please use SVN to checkout the latest trunk version, as it should always be stable and current.*
-
-Installation
-------------
-
-*Note:* You will need to install the `sphinxapi.py` package into your Python Path. In previous version of djangosphinx, Sphinx Python APIs were provided in the djangosphinx package. This has been dropped in favor of versioned PIP packages for each Sphinx API that is available, or a manual installation of the "sphinxapi.py" file in your Python path. If you prefer the manual method, and are using Virtualenv, you can simply create a directory called "sphinxapi" in your site-packages and drop the (included with your download of the Sphinx source) sphinxapi.py file in inside. Also, create an empty __init__.py file in the "sphinxapi" directory so Python knows that the API is an importable package.
+Это прослойка, подобная Django ORM, работающая поверх Sphinx full-text поискового движка (http://www.sphinxsearch.com)
 
 
-Usage
------
+Установка
+---------
 
-The following is some example usage::
+*В данный момент нет пакетов, доступных для установки. Используйте Git, чтобы скачать актуальную версию пакета.*
+**Note**: для пользователей Gentoo есть ebuild: https://github.com/Yuego/overlay/tree/master/dev-python/django-sphinx
+
+*SphinxAPI не входит в состав данного пакета. Пожалуйста используйте `sphinxapi.py` из архива соответствующей версии sphinx. Необходимо в Вашем Python Path создать пакет с именем `sphinxapi`, в который поместить `sphinxapi.py`.*
+**Note**: для пользователей Gentoo так же есть ebuild: https://github.com/Yuego/overlay/tree/master/dev-python/sphinx-api
+
+Настройка
+---------
+
+Пример настройки и использования:
 
     from djangosphinx.models import SphinxSearch
 
@@ -26,86 +26,144 @@ The following is some example usage::
     class MyModel(models.Model):
 
         related_field = models.ForeignKey(RelatedModel)
+        related_field2 = models.OneToOneField(RelatedModel)
         m2m_field = models.ManyToManyField(M2MModel)
-        bool_field = models.BooleanField()
 
-        search = SphinxSearch() # optional: defaults to db_table
-        # If your index name does not match MyModel._meta.db_table
-        # Note: You can only generate automatic configurations from the ./manage.py script
-        # if your index name matches.
+        name = models.CharField(max_length=10)
+        text = models.TextField()
+        stored_string = models.CharField(max_length=100)
+        stored_string2 = models.CharField(max_length=100)
+
+        datetime = models.DateTimeField()
+        bool = models.BooleanField()
+        uint = models.IntegerField()
+
+        excluded_field = models.CharField(max_length=10)
+        excluded_field2 = models.CharField(max_length=10)
+
+        search = SphinxSearch() # можно не указывать никаких аргументов.
+        # В этом случае будут проиндексированы все поля модели,
+        # название индекса будет приравнено к MyModel._meta.db_table
+        # Однако, вы можете дать индексу собственное название
         search = SphinxSearch('index_name')
 
-        # Or maybe we want to be more.. specific
+        # Или, быть может, что-то более... специфичное
         searchdelta = SphinxSearch(
             index='index_name delta_name',
-            weights={
+            weights={                   # см.
                 'name': 100,
                 'description': 10,
                 'tags': 80,
             },
-            mode='SPH_MATCH_ALL',
-            rankmode='SPH_RANK_NONE',
+            mode='SPH_MATCH_ALL',       # см. http://sphinxsearch.com/docs/2.0.4/matching-modes.html
+            rankmode='SPH_RANK_NONE',   # см. http://sphinxsearch.com/docs/2.0.4/weighting.html
         )
 
-        # все возможные способы указания полей
-        mysearch = SphinxSearch(
-            'included_fields': [    # Список индексируемых полей.
-                'field1',           # Для нестроковых полей stored-атрибуты
-                'field2',           # создаются автоматически,
-                'field3',           # за исключением первичного ключа (primary_key).
+        # выбор полей для индексации
+        my_search = SphinxSearch(
+            'included_fields': [
+                'text',
+                'bool',
+                'uint',
             ],
-            'excluded_fields': [    # Если список included_fields не заполнен, по-умолчанию индексируются
-                'field4',           # все поля модели; укажите названия полей, которые нужно исключить
-                'field5',           # из индекса, в этом списке. ВАЖНО: этот список имеет приоритет над
-                                    # included_fields, и поля, указанные в нём, будут удалены из
-                                    # included_fields.
+            'excluded_fields': [
+                'excluded_field2',
             ],
-            'stored_attributes': [  # Если нужно сделать stored строковые поля,
-                'string_field1',    # их следует указывать в данном списке.
-                'field1',           # Если поле не является строковым и уже указано в
-                                    # included_fields оно будет проигнорировано.
-                'field2',           # Если его нет в included_fields, оно будет туда добавлено.
+            'stored_attributes': [
+                'stored_string',
+                'datetime',
             ],
-            'related_fields': [     # В этом списке необходимо указать список полей типа FK и One2One
-                'related_field',    # типа ForeignKey и OneToOneField. Это позволит фильтровать
-                                    # по списку объектов из связанной таблицы (см. ниже)
+            'stored_fields': [
+                'stored_string2',
+            ]
+            'related_fields': [
+                'related_field',
+                'related_field2',
+
             ],
-            'mva_fields': {         # Список MVA атрибутов (поля M2M)
-                'sections',         #
-                'subsections',      #
+            'mva_fields': {
+                'm2m_field',
             },
         )
 
-    queryset = MyModel.search.query('query')
-    results1 = queryset.order_by('@weight', '@id', 'my_attribute')
-    results2 = queryset.filter(my_attribute=5)
-    results3 = queryset.filter(my_other_attribute=[5, 3,4])
-    results4 = queryset.exclude(my_attribute=5)[0:10]
+**included_fields**
+
+Список полей, которые необходимо включить в индекс. Все текстовые поля будут проиндексированы как full-text (но не как атрибуты). Все нетекстовые поля (за некоторыми исключениями, см. ниже) будут проиндексированы как stored attributes.
+
+**excluded_fields**
+
+Список исключенных из индекса полей. Может быть использован, чтобы внести в индекс все поля модели, за исключением указанных здесь.
+Имеет приоритет над `included_fields`, `stored_attributes`, `stored_fields`. Все поля, перечисленные в `excluded_fields`, будут удалены из этих списков.
+Вот только ума не приложу, кому это может быть надо...
+
+**stored_attributes**   # см. http://sphinxsearch.com/docs/2.0.4/confgroup-source.html, разделы 11.1.17-11.1.25, кроме 11.1.23
+
+Список полей, которые необходимо проиндексировать как stored attributes.
+Данный список может быть полезен, если требуется индексировать текстовое поле как атрибут документа, но не как full-text.
+Этот список не требуется дублировать в `included_fields` - его содержимое автоматически будет туда добавлено.
+
+**stored_fields**       # см. http://sphinxsearch.com/docs/2.0.4/conf-sql-field-string.html
+
+Список текстовых полей, которые необходимо проиндексировать и как атрибуты, и как full-text.
+Этот список не требуется дублировать в `included_fields` - его содержимое автоматически будет туда добавлено.
+
+**related_fields**
+
+Список полей, связанных с другими моделями. Должен содержать только отношения один-к-одному (OneToOneField) и один-ко-многим (ForeignKey)
+В индекс помещаются ключи соответствующих объектов связанных моделей в виде stored-атрибутов.
+По этим объектам можно фильтровать выборку (см. примеры ниже)
+
+**mva_fields**      # см. http://sphinxsearch.com/docs/2.0.4/conf-sql-attr-multi.html
+
+Список MVA-атрибутов.
+
+**WARNING**
+Будье осторожны в использовании stored-атрибутов, особенно текстовых. Все атрибуты sphinx загружает в память, поэтому поля, содержащие много текста, могут съесть всю память Вашего сервера.
+Заполняйте `included_fields` только необходимыми полями, но не оставляйте его пустым.
+Я Вас предупредил!
+
+
+Использование
+-------------
+
+**Note**: все примеры будут даны для указанной выше модели
+
+    queryset = MyModel.my_search.query('query')
+
+    # простые выборки
+    results1 = queryset.order_by('@weight', '@id', 'uint')
+    results2 = queryset.filter(uint=[1,2,5,7,10])
+    results3 = queryset.filter(bool=False)
+    results4 = queryset.exclude(uint=5)[0:10]
     results5 = queryset.count()
 
-    # ForeignKey, OneToOneField, ManyToManyField можно искать как по списку идентификаторов соответствующих моделей,
-    # так и по обекту или QuerySet
+    # примеры посложнее
 
-    # ForeignKey or OneToOneField lookup
-    related_model_item = RelatedModel.objects.get(pk=1)
-    related_model_items = RelatedModel.objects.get(pk__in=[1,2])
+    # ForeignKey или OneToOneField
+    related_item = RelatedModel.objects.get(pk=1)
+    related_queryset = RelatedModel.objects.get(pk__in=[1,2])
 
-    results6 = queryset.filter(related_field=related_model_item)
-    results7 = queryset.filter(related_field=100)
-    results8 = queryset.filter(related_field__in=related_model_items)
-    results9 = queryset.filter(related_field__in=[4,5,6])
+    # фильтр по идентификатору объекта из связанной модели
+    results6 = queryset.filter(related_field=100)
+    # или можно передать в качестве аргумента сам объект
+    results7 = queryset.filter(related_field=related_item)
 
-    # ManyToManyField lookup
-    m2m_related_model_item = M2MModel.objects.get(pk=1)
-    m2m_related_model_items = M2MModel.objects.filter(pk__in=[1,2,3])
+    # фильтр по списку идентификаторов нескольких объектов из связанной модели
+    results8 = queryset.filter(related_field__in=[4,5,6])
+    # или QuerySet
+    results9 = queryset.filter(related_field__in=related_queryset)
 
-    results10 = queryset.filter(m2m_field=m2m_related_model_item)
+
+    # ManyToManyField
+    m2m_item = M2MModel.objects.get(pk=1)
+    m2m_queryset = M2MModel.objects.filter(pk__in=[1,2,3])
+
+    # аналогично для MVA-атрибутов
     results11 = queryset.filter(m2m_field=23)
-    results12 = queryset.filter(m2m_field__in=m2m_related_model_items)
+    results10 = queryset.filter(m2m_field=m2m_item)
     results13 = queryset.filter(m2m_field__in=[2,6,9])
+    results12 = queryset.filter(m2m_field__in=m2m_queryset)
 
-    # Other fields lookup
-    result14 = queryset.filter(bool_field=False)
 
     # as of 2.0 you can now access an attribute to get the weight and similar arguments
     for result in results1:
@@ -169,46 +227,6 @@ This will loop through all models in <appname> and attempt to find any with a Sp
 
 Using the Config Generator
 --------------------------
-* New in 3.0*
-A new "options" key has been added to SphinxSearch. These new options allow you to specify various aspects of your generated configuration file.
-
-Allowed keys are:
-"excluded_fields" 
-"included_fields"
-"stored_string_attributes"
-"related_fields"
-"related_stored_attributes"
-
-"excluded_fields", "included_fields", and "stored_string_attributes"
---------------------------------------------------------------------
-
-The "excluded_fields" and "included_fields" keys are mutually exclusive, meaning the following SphinxSearch configuration will throw a command error when you try to execute "generate_sphinx_config --all":
-
-search = SphinxSearch(
-    options = {
-        'excluded_fields': ['name', 'address'],
-        'included_fields': ['phone', 'address']
-    }
-)
-
-Either whitelist fields you want, or blacklist fields you don't - not both. By default, leaving these options out will result in the configuration generator making all model fields available for full-text indexing, if those fields are the right type (string).
-
-The "stored_string_attributes" option (Sphinx v1.10beta or higher) allows you to specify string fields of your Django model to be stored inside the document for each result of that model type. This can result in a non-trivial increase in the size of your index, so be judicious about what size strings you're putting in as string attributes. If you put in models.TextField fields as string attributes, be prepared for many orders of magnitude higher index times and index size. You've been warned!
-
-
-"related_fields" and "related_stored_attributes"
-------------------------------------------------
-
-These two options allow the configuration generator to look ONE-level deep through one-to-many (ForeignKey) relationships on the Django model for your index. ManyToMany relations are not supported - you'll have to write that configuration yourself. In practice, a field specified in "related_stored_attributes" option is dependent on the presence of that field name in the "related_fields" option. An example:
-
-search = SphinxSearch(
-    options = {
-        'related_fields': ['car.make', 'car.model'],
-        'related_stored_attributes': ['car.model']
-    }
-)
-
-In this example, 'car' is the name of the ForeignKey field on the model for this index. Any fields you specify in 'related_fields' will be placed in the main Sphinx sql_query, and therefore eligible for full-text searching (if it's the right field type). Any fields in 'related_fields' that are also present in 'related_stored_attributes' will be stored in each Sphinx document.
 
 **WARNING**
 The same caveats that pertain to "stored_string_fields" apply here. Be careful about storing too much information in this manner. Attributes are meant mainly for filtering and sorting, not storage. Add too much baggage to your documents and you can make Sphinx crawl. You've been warned - again.

@@ -34,6 +34,7 @@ class Search(models.Model):
     m2m = models.ManyToManyField(M2M)
 
     search = SphinxSearch(
+        index='test_index',
         options={
             'included_fields': [
                 'text',
