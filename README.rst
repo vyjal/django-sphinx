@@ -13,7 +13,9 @@
 Настройка
 ---------
 
-Пример настройки и использования::
+**Note**: для каждой модели можно указать только одино поле типа SphinxSearch!::
+
+    # Пример настройки и использования:
 
     from django.db import models
     from djangosphinx.models import SphinxSearch

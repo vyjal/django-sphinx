@@ -113,6 +113,8 @@ def get_sphinx_attr_type_for_field(field):
         float=(DecimalField, FloatField),
         timestamp=(DateField, DateTimeField, TimeField),
         bool=(BooleanField, NullBooleanField),
+
+        multi=(ManyToManyField,)
     )
 
     for t in types:

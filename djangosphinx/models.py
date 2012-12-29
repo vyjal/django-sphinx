@@ -347,12 +347,12 @@ class SphinxQuerySet(object):
     # only works on attributes
     def filter(self, **kwargs):
         filters = self._filters.copy()
-        return self._clone(_filters=self._process_filter(filters, **kwargs))
+        return self._clone(_filters=self._process_filter(filters, exclude=False, **kwargs))
 
     # only works on attributes
     def exclude(self, **kwargs):
         filters = self._excludes.copy()
-        return self._clone(_excludes=self._process_filter(filters, **kwargs))
+        return self._clone(_excludes=self._process_filter(filters, exclude=True, **kwargs))
 
 
     def geoanchor(self, lat_attr, lng_attr, lat, lng):
@@ -575,7 +575,9 @@ class SphinxQuerySet(object):
 
         return results
 
-    def _check_field(self, field, obj):
+    def _check_related_field(self, field_name, obj):
+        field = self.model._meta.get_field(field_name)
+
         if not isinstance(field, RelatedField):
             raise AttributeError('An object can only be compared with Related field, not with `%s`' % type(field))
 
@@ -584,49 +586,102 @@ class SphinxQuerySet(object):
         if not isinstance(obj, related_model):
             raise TypeError('Field `%s` is not associated with the model `%s`' % (field.name, type(obj)))
 
-        return True
+        return field
 
-    def _process_filter(self, filters, **kwargs):
+    def _check_field(self, field_name):
+        field = self.model._meta.get_field(field_name)
+
+        if get_sphinx_attr_type_for_field(field) == 'string':
+            raise TypeError('Can`t filter by string attribute `%s`' % type(field))
+
+        return field
+
+    def _process_single_obj_operation(self, field, obj):
+        if isinstance(obj, models.Model):
+            self._check_related_field(field, obj)
+            value = obj.pk
+
+        elif not isinstance(obj, (list, tuple, QuerySet)):
+            self._check_field(field)
+            value = obj
+        else:
+            raise TypeError('Comparison operations require a single object, not a list')
+
+        return to_sphinx(value)
+
+    def _process_obj_list_operation(self, field, obj_list):
+        if isinstance(obj_list, QuerySet):
+            self._check_related_field(field, obj_list[0])
+            values = list(obj_list)
+        elif hasattr(obj_list, '__iter__') or isinstance(obj_list, (list, tuple)):
+            values = list(obj_list)
+        else:
+            raise TypeError('`%s` is not a list of objects' % type(obj_list))
+
+        return map(to_sphinx, values)
+
+    def _process_filter(self, filters, exclude, **kwargs):
+        """
+        Filter types:
+            filter: SetFilter
+            range: SetFilterRange
+            id_range: SetIDRange
+            float_range: SetFilterFloatRange
+
+        """
         for k, v in kwargs.iteritems():
-            if isinstance(v, (QuerySet, models.Model)):
-                parts = k.split('__')
-                parts_len = len(parts)
-
-                if parts_len > 1 and parts[-1] in FILTER_LIST_OPERATIONS: # условие или relation
-                    if isinstance(v, models.Model):  # список из одного элемента
-                        v = [v.pk]
-                    else: # QuerySet. А как иначе-то?
-                        if parts_len > 2:  # deep related
-                            raise NotImplementedError('Related model fields lookup not supported')
-                        else:
-                            field = self.model._meta.get_field(parts[0])
-
-                            # придётся всё-таки сделать запрос до проверки типа аргумента :(
-                            self._check_field(field, v[0])
-
-                            v = [obj.pk for obj in v]
-                else: # единственный объект
-                    if not isinstance(v, models.Model):
-                        raise TypeError('Comparison operations require a single object, not a list')
-
-                    if (parts_len > 1 and parts[-1] in FILTER_CMP_OPERATIONS) or parts_len == 1:
-                        if parts_len > 1: # deep related
-                            raise NotImplementedError('Related model fields lookup not supported')
-                        else:
-                            field = self.model._meta.get_field(parts[0])
-
-                            self._check_field(field, v)
-
-                            v = [v.pk]
-                    else: # len > 1 related
-                        raise NotImplementedError('Related model fields lookup not supported')
+            parts = k.split('__')
+            parts_len = len(parts)
+            field = parts[0]
+            lookup = parts[-1]
 
 
-            elif hasattr(v, '__iter__'):
-                v = list(v)
-            elif not (isinstance(v, list) or isinstance(v, tuple)):
-                v = [v]
-            filters.setdefault(k, []).extend(map(to_sphinx, v))
+
+            if parts_len == 1:  # один
+                v = self._process_single_obj_operation(parts[0], v)
+            elif parts_len == 2: # один exact или список, или сравнение
+                if lookup in FILTER_CMP_OPERATIONS:
+                    v = self._process_single_obj_operation(field, v)
+                elif lookup in FILTER_LIST_OPERATIONS:
+                    v = self._process_obj_list_operation(field, v)
+                else:
+                    raise NotImplementedError('Related object and/or field lookup "%s" not supported' % lookup)
+            else: # related
+                raise NotImplementedError('Related model fields lookup not supported')
+
+            # parse args
+            if isinstance(v, list):
+                if lookup == 'range':
+                    if len(v) > 2:
+                        raise ValueError('Range may consist of two values')
+                    args = ('range', field, v[0], v[1], exclude)
+                elif lookup in ['in', 'exact', 'iexact']:
+                    args = ('filter', field, v, exclude)
+                else:
+                    raise NotImplementedError('Lookup "%s" is not supported' % lookup)
+            else:
+                args = []
+                is_float = isinstance(v, float)
+                _max = MAX_FLOAT if is_float else MAX_INT
+                if lookup in ('gt', 'gte'):
+                    if lookup == 'gt':
+                        v += (1.0/MAX_INT) if is_float else 1
+                    args = [field, v, _max, exclude]
+                elif lookup in ('lt', 'lte'):
+                    if lookup == 'lt':
+                        v -= (1.0/MAX_INT) if is_float else 1
+                    args = [field, _max, v, exclude]
+                elif field == lookup:
+                    args = ('filter', field, [v], exclude)
+                else:
+                    raise NotImplementedError('Lookup "%s" is not supported' % lookup)
+
+                if is_float:
+                    args.insert(0, 'float_range')
+                elif not exclude and self.model and field == self.model._meta.pk.name:
+                    args.insert(0, 'id_range')
+
+            filters.setdefault(k, []).extend(args)
         return filters
 
     def get(self, **kwargs):
@@ -880,16 +935,11 @@ class SphinxSearch(object):
         self._sphinx = SphinxModelManager(model, index=self._index, **self._kwargs)
         self.model = model
 
-        if getattr(model, '__sphinx_indexes__', None) is None:
-            setattr(model, '__sphinx_indexes__', [self._index])
-        else:
-            model.__sphinx_indexes__.append(self._index)
+        if hasattr(model, '__sphinx_indexes__') or hasattr(model, '__sphinx_options__'):
+            raise AttributeError('Only one instance of SphinxSearch can be present in the model: `%s.%s`' % (self.model._meta.app_label, self.model._meta.object_name))
 
-        # Add in metaoptions used when auto generating config
-        if getattr(model, '__sphinx_options__', None) is None:
-            setattr(model, '__sphinx_options__', self._options)
-        else:
-            model.__sphinx_options__.append(self._options)
+        setattr(model, '__sphinx_indexes__', [self._index])
+        setattr(model, '__sphinx_options__', self._options)
 
         setattr(model, name, self._sphinx)
 
