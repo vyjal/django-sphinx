@@ -19,6 +19,7 @@ from django.db.models.query import Q, QuerySet
 from django.conf import settings
 from django.core.cache import cache
 
+from djangosphinx.utils.config import get_sphinx_attr_type_for_field
 
 __all__ = ('SearchError', 'ConnectionError', 'SphinxSearch', 'SphinxRelation', 'SphinxQuerySet')
 
@@ -34,6 +35,7 @@ SPHINX_RETRIES          = int(getattr(settings, 'SPHINX_RETRIES', 0))
 SPHINX_RETRIES_DELAY    = int(getattr(settings, 'SPHINX_RETRIES_DELAY', 5))
 
 MAX_INT = int(2 ** 31 - 1)
+MAX_FLOAT = 1.1e+38 # this is almost max, that fits in struct.pack 'f'
 
 EMPTY_RESULT_SET = dict(
     matches=[],
@@ -229,6 +231,7 @@ class SphinxQuerySet(object):
         self._passages_opts         = {}
         self._maxmatches            = 1000
         self._result_cache          = None
+        self._fields_cache          = {}
         self._mode                  = sphinxapi.SPH_MATCH_ALL
         self._rankmode              = getattr(sphinxapi, 'SPH_RANK_PROXIMITY_BM25', None)
         self.model                  = model
@@ -341,64 +344,6 @@ class SphinxQuerySet(object):
         warnings.warn('`mode()` is deprecated. Use `set_options(on_index=foo)` instead.', DeprecationWarning)
         return self._clone(_index=index)
 
-    def _check_field(self, field, obj):
-        print type(field), type(obj)
-        if not isinstance(field, RelatedField):
-            raise TypeError('An object can only be compared with Related field')
-
-        related_model = field.rel.to
-
-        if not isinstance(obj, related_model):
-            raise TypeError('Field `%s` is not associated with the model `%s`' % (field.name, type(obj)))
-
-    def _process_filter(self, filters, **kwargs):
-        for k, v in kwargs.iteritems():
-            print type(v)
-            if isinstance(v, (QuerySet, models.Model)):
-                print 'is object or queryset'
-                parts = k.split('__')
-                parts_len = len(parts)
-
-                if parts_len > 1 and parts[-1] in FILTER_LIST_OPERATIONS: # условие или relation
-                    print 'is list'
-                    if isinstance(v, models.Model):  # список из одного элемента
-                        v = [v.pk]
-                    else: # QuerySet. А как иначе-то?
-                        if parts_len > 2:  # deep related
-                            raise NotImplementedError('Related model fields lookup not supported')
-                        else:
-                            field = self.model._meta.get_field(parts[0])
-
-                            # придётся всё-таки сделать запрос до проверки типа аргумента :(
-                            self._check_field(field, v[0])
-
-                            v = [obj.pk for obj in v]
-                else: # единственный объект
-                    print 'is single obj'
-                    if not isinstance(v, models.Model):
-                        raise TypeError('Comparison operations require a single object, not a list')
-
-                    if (parts_len > 1 and parts[-1] in FILTER_CMP_OPERATIONS) or parts_len == 1:
-                        print 'exact'
-                        if parts_len > 2: # deep related
-                            raise Exception
-                        else:
-                            field = self.model._meta.get_field(parts[0])
-
-                            self._check_field(field, v)
-
-                            v = [v.pk]
-
-                    print 'end exact'
-
-
-            elif hasattr(v, '__iter__'):
-                v = list(v)
-            elif not (isinstance(v, list) or isinstance(v, tuple)):
-                v = [v]
-            filters.setdefault(k, []).extend(map(to_sphinx, v))
-        return filters
-
     # only works on attributes
     def filter(self, **kwargs):
         filters = self._filters.copy()
@@ -508,7 +453,14 @@ class SphinxQuerySet(object):
         return self._result_cache
 
     def _get_sphinx_results(self):
+        """\
+        Всегда возвращает RESULT_SET\
+        """
         assert(self._offset + self._limit <= self._maxmatches)
+
+        if not self._limit > 0:
+            # Fix for Sphinx throwing an assertion error when you pass it an empty limiter
+            return EMPTY_RESULT_SET
 
         client = self._get_sphinx_client()
 
@@ -537,27 +489,18 @@ class SphinxQuerySet(object):
                     # The float handling for __gt and __lt is kind of ugly..
                     name, lookup = name.split('__', 1)
                     is_float = isinstance(values[0], float)
+
                     if lookup in ('gt', 'gte'):
                         value = values[0]
+                        _max = MAX_FLOAT if is_float else MAX_INT
                         if lookup == 'gt':
-                            if is_float:
-                                value += (1.0 / MAX_INT)
-                            else:
-                                value += 1
-                        _max = MAX_INT
-                        if is_float:
-                            _max = float(_max)
+                            value += (1.0/MAX_INT) if is_float else 1
                         args = (name, value, _max, exclude)
                     elif lookup in ('lt', 'lte'):
                         value = values[0]
+                        _max = -MAX_FLOAT if is_float else -MAX_INT
                         if lookup == 'lt':
-                            if is_float:
-                                value -= (1.0 / MAX_INT)
-                            else:
-                                value -= 1
-                        _max = -MAX_INT
-                        if is_float:
-                            _max = float(_max)
+                            value -= (1.0/MAX_INT) if is_float else 1
                         args = (name, _max, value, exclude)
                     elif lookup == 'range':
                         args = (name, values[0], values[1], exclude)
@@ -598,10 +541,6 @@ class SphinxQuerySet(object):
             params.append('rankmode=%s' % (self._rankmode,))
             client.SetRankingMode(self._rankmode)
 
-        if not self._limit > 0:
-            # Fix for Sphinx throwing an assertion error when you pass it an empty limiter
-            return EMPTY_RESULT_SET
-
         if sphinxapi.VER_COMMAND_SEARCH >= 0x113:
             client.SetRetries(SPHINX_RETRIES, SPHINX_RETRIES_DELAY)
 
@@ -612,13 +551,6 @@ class SphinxQuerySet(object):
             self._index = self._index.encode('utf-8')
 
         results = client.Query(self._query, self._index)
-
-        # Decode the encoded document ids, and if a content type is found set the string
-        # on the results list attributes (that likely got clobbered due to heterogenous index schema :\)
-        for result in results['matches']:
-            result = self._decode_document_id(result)
-
-        #results['attrs'].append({'content_type': True})
 
         # The Sphinx API doesn't raise exceptions
 
@@ -632,9 +564,70 @@ class SphinxQuerySet(object):
         elif not results['matches']:
             results = EMPTY_RESULT_SET
 
+        # Decode the encoded document ids, and if a content type is found set the string
+        # on the results list attributes (that likely got clobbered due to heterogenous index schema :\)
+        for result in results['matches']:
+            result = self._decode_document_id(result)
+
+        #results['attrs'].append({'content_type': True})
+
         logging.debug('Found %s results for search query %s on %s with params: %s', results['total'], self._query, self._index, ', '.join(params))
 
         return results
+
+    def _check_field(self, field, obj):
+        if not isinstance(field, RelatedField):
+            raise AttributeError('An object can only be compared with Related field, not with `%s`' % type(field))
+
+        related_model = field.rel.to
+
+        if not isinstance(obj, related_model):
+            raise TypeError('Field `%s` is not associated with the model `%s`' % (field.name, type(obj)))
+
+        return True
+
+    def _process_filter(self, filters, **kwargs):
+        for k, v in kwargs.iteritems():
+            if isinstance(v, (QuerySet, models.Model)):
+                parts = k.split('__')
+                parts_len = len(parts)
+
+                if parts_len > 1 and parts[-1] in FILTER_LIST_OPERATIONS: # условие или relation
+                    if isinstance(v, models.Model):  # список из одного элемента
+                        v = [v.pk]
+                    else: # QuerySet. А как иначе-то?
+                        if parts_len > 2:  # deep related
+                            raise NotImplementedError('Related model fields lookup not supported')
+                        else:
+                            field = self.model._meta.get_field(parts[0])
+
+                            # придётся всё-таки сделать запрос до проверки типа аргумента :(
+                            self._check_field(field, v[0])
+
+                            v = [obj.pk for obj in v]
+                else: # единственный объект
+                    if not isinstance(v, models.Model):
+                        raise TypeError('Comparison operations require a single object, not a list')
+
+                    if (parts_len > 1 and parts[-1] in FILTER_CMP_OPERATIONS) or parts_len == 1:
+                        if parts_len > 1: # deep related
+                            raise NotImplementedError('Related model fields lookup not supported')
+                        else:
+                            field = self.model._meta.get_field(parts[0])
+
+                            self._check_field(field, v)
+
+                            v = [v.pk]
+                    else: # len > 1 related
+                        raise NotImplementedError('Related model fields lookup not supported')
+
+
+            elif hasattr(v, '__iter__'):
+                v = list(v)
+            elif not (isinstance(v, list) or isinstance(v, tuple)):
+                v = [v]
+            filters.setdefault(k, []).extend(map(to_sphinx, v))
+        return filters
 
     def get(self, **kwargs):
         """Hack to support ModelAdmin"""
@@ -655,13 +648,16 @@ class SphinxQuerySet(object):
 
     def _get_results(self):
         results = self._get_sphinx_results()
-        if not results:
-            results = EMPTY_RESULT_SET
+
         self.__metadata = {
             'total': results['total'],
             'total_found': results['total_found'],
             'words': results['words'],
         }
+
+        if results == EMPTY_RESULT_SET:
+            return []
+
         if results['matches'] and self._passages:
             # We need to do some initial work for passages
             # XXX: The passages implementation has a potential gotcha if your id
@@ -703,13 +699,12 @@ class SphinxQuerySet(object):
                     # TODO: clean this up
                     for r in results['matches']:
                         if r['id'] in queryset:
-                            r['passages'] = self._get_passages(queryset[r['id']], words)
+                            r['passages'] = self._get_passages(queryset[r['id']], words, results['fields'])
 
                 results = [SphinxProxy(queryset[r['id']], r) for r in results['matches'] if r['id'] in queryset]
             else:
                 results = []
         else:
-            #TODO: довести до ума
 
             objects = {}
             for r in results['matches']:
@@ -745,11 +740,48 @@ class SphinxQuerySet(object):
 
         return results
 
-    def _get_passages(self, instance, words):
-        #TODO: пока подсветка работает только для included_fields. ИСПРАВИТЬ!!!
+    def _get_doc_fields(self, instance):
+        cache =  self._fields_cache.get(type(instance), None)
+        if cache is None:
+
+            def _get_field(name):
+                return instance._meta.get_field(name)
+
+            opts = instance.__sphinx_options__
+            included = opts.get('included_fields', [])
+            excluded = opts.get('excluded_fields', [])
+            stored_attrs = opts.get('stored_attributes', [])
+            stored_fields = opts.get('stored_fields', [])
+            if included:
+                included = [f for f in included if
+                                                    f not in excluded
+                                                    and
+                                                    get_sphinx_attr_type_for_field(_get_field(f)) == 'string']
+                for f in stored_fields:
+                    if get_sphinx_attr_type_for_field(_get_field(f)) == 'string':
+                        included.append(f)
+            else:
+                included = [f.name for f in instance._meta.fields
+                                    if
+                                        f.name not in excluded
+                                        and
+                                        (f.name not in stored_attrs
+                                             or
+                                             f.name in stored_fields)
+                                        and
+                                        get_sphinx_attr_type_for_field(f) == 'string']
+
+            cache = self._fields_cache[type(instance)] = included
+
+        return cache
+
+    def _get_passages(self, instance, words, fields=None):
         client = self._get_sphinx_client()
 
-        docs = [getattr(instance, f) for f in instance.__sphinx_options__['included_fields']]
+        if not fields:
+            fields = self._get_doc_fields(instance)
+
+        docs = [getattr(instance, f) for f in fields]
 
         if isinstance(self._passages_opts, dict):
             opts = self._passages_opts
@@ -759,17 +791,16 @@ class SphinxQuerySet(object):
             self._index = self._index.encode('utf-8')
         passages_list = client.BuildExcerpts(docs, instance.__sphinx_indexes__[0], words, opts)
 
-        passages = {}
-        c = 0
-        for f in instance.__sphinx_options__['included_fields']:
-            passages[f] = passages_list[c]
-            c += 1
-        return passages
+        # если список пуст или есть None, заполняем его значениями из полей модели
+        if not passages_list:
+            passages_list = docs
+
+        return dict(zip(fields, passages_list))
 
 
 class EmptySphinxQuerySet(SphinxQuerySet):
     def _get_sphinx_results(self):
-        return None
+        return EMPTY_RESULT_SET
 
 
 class SphinxModelManager(object):
@@ -822,6 +853,7 @@ class SphinxSearch(object):
             self._options = kwargs.pop('options')
         except:
             self._options = None
+
         self._kwargs = kwargs
         self._sphinx = None
         self._index = index

@@ -82,7 +82,7 @@ DEFAULT_SPHINX_PARAMS.update({
     'data_path': getattr(settings, 'SPHINX_DATA_PATH', '/var/data'),
     'pid_file': getattr(settings, 'SPHINX_PID_FILE', '/var/log/searchd.pid'),
     'sphinx_host': getattr(settings, 'SPHINX_HOST', '127.0.0.1'),
-    'sphinx_port': getattr(settings, 'SPHINX_PORT', '3312'),
+    'sphinx_port': getattr(settings, 'SPHINX_PORT', '9312'),
     'sphinx_api_version': getattr(sphinxapi, 'VER_COMMAND_SEARCH', 0x113),
 })
 
@@ -102,23 +102,25 @@ def get_conf_context():
     return params
 
 
-def _get_sphinx_attr_type_for_field(field):
+def get_sphinx_attr_type_for_field(field):
     types = dict(
         string=(CharField, EmailField, FilePathField, IPAddressField, SlugField, TextField, URLField),
-        uint=(AutoField, IntegerField, PositiveIntegerField, PositiveSmallIntegerField, SmallIntegerField),
+        uint=(AutoField, IntegerField, PositiveIntegerField,
+              PositiveSmallIntegerField, SmallIntegerField,
+              ForeignKey, OneToOneField),
+
         bigint=(BigIntegerField),
         float=(DecimalField, FloatField),
         timestamp=(DateField, DateTimeField, TimeField),
         bool=(BooleanField, NullBooleanField),
-        #multi=(ManyToManyField,),
     )
 
     for t in types:
         if isinstance(field, types[t]):
             return t
 
-
-    raise TypeError(u'Unknown field type `%s`' % type(field))
+    warnings.warn('Unknown field type: `%s`' % type(field))
+    return 'unknown'
 
 
 # Generate for single models
@@ -185,7 +187,7 @@ def _process_options_for_model_fields(options, model_fields, model_class):
             stored_attrs_list.pop(stored_attrs_list.index(field.column))
 
         # собираем массив числовых private_keys
-        if type(field) == AutoField or _get_sphinx_attr_type_for_field(field) in ['uint', 'bigint']:
+        if type(field) == AutoField or get_sphinx_attr_type_for_field(field) in ['uint', 'bigint']:
             indexes.append(field)
         else:
             raise TypeError('Currently, non-numeric primary key type is not supported')
@@ -213,18 +215,18 @@ def _process_options_for_model_fields(options, model_fields, model_class):
 
     # добавляем в stored все нестроковые поля, не являющиеся private keys
     for field in fields:
-        if field not in pks and _get_sphinx_attr_type_for_field(field) != 'string':
-            attr_type = _get_sphinx_attr_type_for_field(field)
+        if field not in pks and get_sphinx_attr_type_for_field(field) != 'string':
+            attr_type = get_sphinx_attr_type_for_field(field)
             stored_attrs.setdefault(attr_type, []).append(field.column)
 
     # добавляем в stored заданные вручную строковые поля
     for column in stored_attrs_list:
         field = model_class._meta.get_field(column)
-        if _get_sphinx_attr_type_for_field(field) == 'string':
+        if get_sphinx_attr_type_for_field(field) == 'string':
             if sphinxapi.VER_COMMAND_SEARCH < 0x117:
                 raise ImproperlyConfigured('Stored string attributes require a Sphinx API for version 1.10beta or above.')
 
-            attr_type = _get_sphinx_attr_type_for_field(field)
+            attr_type = get_sphinx_attr_type_for_field(field)
             stored_attrs.setdefault(attr_type, []).append(field.column)
 
     return (fields, indexes, stored_attrs)
@@ -277,7 +279,7 @@ def _process_mva_fields_for_model(options, model_class, content_type, indexes):
                             ])
 
             mvas[field.name] = {
-                'type': _get_sphinx_attr_type_for_field(related_target_field),
+                'type': get_sphinx_attr_type_for_field(related_target_field),
                 'tag': field.name,
                 'source_type': 'query',
                 'query': query,
