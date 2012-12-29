@@ -342,25 +342,23 @@ class SphinxQuerySet(object):
         return self._clone(_index=index)
 
     def _check_field(self, field, obj):
-        print type(field), type(obj)
         if not isinstance(field, RelatedField):
-            raise TypeError('An object can only be compared with Related field')
+            raise ValueError('An object can only be compared with Related field')
 
         related_model = field.rel.to
 
         if not isinstance(obj, related_model):
             raise TypeError('Field `%s` is not associated with the model `%s`' % (field.name, type(obj)))
 
+        return True
+
     def _process_filter(self, filters, **kwargs):
         for k, v in kwargs.iteritems():
-            print type(v)
             if isinstance(v, (QuerySet, models.Model)):
-                print 'is object or queryset'
                 parts = k.split('__')
                 parts_len = len(parts)
 
                 if parts_len > 1 and parts[-1] in FILTER_LIST_OPERATIONS: # условие или relation
-                    print 'is list'
                     if isinstance(v, models.Model):  # список из одного элемента
                         v = [v.pk]
                     else: # QuerySet. А как иначе-то?
@@ -374,12 +372,10 @@ class SphinxQuerySet(object):
 
                             v = [obj.pk for obj in v]
                 else: # единственный объект
-                    print 'is single obj'
                     if not isinstance(v, models.Model):
                         raise TypeError('Comparison operations require a single object, not a list')
 
                     if (parts_len > 1 and parts[-1] in FILTER_CMP_OPERATIONS) or parts_len == 1:
-                        print 'exact'
                         if parts_len > 2: # deep related
                             raise Exception
                         else:
@@ -388,9 +384,6 @@ class SphinxQuerySet(object):
                             self._check_field(field, v)
 
                             v = [v.pk]
-
-                    print 'end exact'
-
 
             elif hasattr(v, '__iter__'):
                 v = list(v)
