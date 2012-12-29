@@ -14,7 +14,7 @@
 ---------
 
 Пример настройки и использования:
-```
+```python
     from djangosphinx.models import SphinxSearch
 
     class RelatedModel(models.Model)
