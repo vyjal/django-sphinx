@@ -13,78 +13,78 @@
 Настройка
 ---------
 
-Пример настройки и использования:
+Пример настройки и использования::
 
-	from djangosphinx.models import SphinxSearch
+    from djangosphinx.models import SphinxSearch
 
-	class RelatedModel(models.Model)
-		name = models.CharField(max_length = 100)
+    class RelatedModel(models.Model)
+        name = models.CharField(max_length = 100)
 
-	class M2MModel(models.Model)
-		name = models.CharField(max_length = 100)
+    class M2MModel(models.Model)
+        name = models.CharField(max_length = 100)
 
-	class MyModel(models.Model):
+    class MyModel(models.Model):
 
-		related_field = models.ForeignKey(RelatedModel)
-		related_field2 = models.OneToOneField(RelatedModel)
-		m2m_field = models.ManyToManyField(M2MModel)
+        related_field = models.ForeignKey(RelatedModel)
+        related_field2 = models.OneToOneField(RelatedModel)
+        m2m_field = models.ManyToManyField(M2MModel)
 
-		name = models.CharField(max_length=10)
-		text = models.TextField()
-		stored_string = models.CharField(max_length=100)
-		stored_string2 = models.CharField(max_length=100)
+        name = models.CharField(max_length=10)
+        text = models.TextField()
+        stored_string = models.CharField(max_length=100)
+        stored_string2 = models.CharField(max_length=100)
 
-		datetime = models.DateTimeField()
-		bool = models.BooleanField()
-		uint = models.IntegerField()
+        datetime = models.DateTimeField()
+        bool = models.BooleanField()
+        uint = models.IntegerField()
 
-		excluded_field = models.CharField(max_length=10)
-		excluded_field2 = models.CharField(max_length=10)
+        excluded_field = models.CharField(max_length=10)
+        excluded_field2 = models.CharField(max_length=10)
 
-		search = SphinxSearch() # можно не указывать никаких аргументов.
-		# В этом случае будут проиндексированы все поля модели,
-		# название индекса будет приравнено к MyModel._meta.db_table
-		# Однако, вы можете дать индексу собственное название
-		search = SphinxSearch('index_name')
+        search = SphinxSearch() # можно не указывать никаких аргументов.
+        # В этом случае будут проиндексированы все поля модели,
+        # название индекса будет приравнено к MyModel._meta.db_table
+        # Однако, вы можете дать индексу собственное название
+        search = SphinxSearch('index_name')
 
-		# Или, быть может, что-то более... специфичное
-		searchdelta = SphinxSearch(
-			index='index_name delta_name',
-			weights={                   # см.
-				'name': 100,
-				'description': 10,
-				'tags': 80,
-			},
-			mode='SPH_MATCH_ALL',       # см. http://sphinxsearch.com/docs/2.0.4/matching-modes.html
-			rankmode='SPH_RANK_NONE',   # см. http://sphinxsearch.com/docs/2.0.4/weighting.html
-		)
+        # Или, быть может, что-то более... специфичное
+        searchdelta = SphinxSearch(
+            index='index_name delta_name',
+            weights={                   # см.
+                'name': 100,
+                'description': 10,
+                'tags': 80,
+            },
+            mode='SPH_MATCH_ALL',       # см. http://sphinxsearch.com/docs/2.0.4/matching-modes.html
+            rankmode='SPH_RANK_NONE',   # см. http://sphinxsearch.com/docs/2.0.4/weighting.html
+        )
 
-		# выбор полей для индексации
-		my_search = SphinxSearch(
-			'included_fields': [
-				'text',
-				'bool',
-				'uint',
-			],
-			'excluded_fields': [
-				'excluded_field2',
-			],
-			'stored_attributes': [
-				'stored_string',
-				'datetime',
-			],
-			'stored_fields': [
-				'stored_string2',
-			]
-			'related_fields': [
-				'related_field',
-				'related_field2',
+        # выбор полей для индексации
+        my_search = SphinxSearch(
+            'included_fields': [
+                'text',
+                'bool',
+                'uint',
+            ],
+            'excluded_fields': [
+                'excluded_field2',
+            ],
+            'stored_attributes': [
+                'stored_string',
+                'datetime',
+            ],
+            'stored_fields': [
+                'stored_string2',
+            ]
+            'related_fields': [
+                'related_field',
+                'related_field2',
 
-			],
-			'mva_fields': {
-				'm2m_field',
-			},
-		)
+            ],
+            'mva_fields': {
+                'm2m_field',
+            },
+        )
 
 
 **included_fields**
@@ -127,52 +127,52 @@
 Использование
 -------------
 
-**Note**: все примеры будут даны для указанной выше модели
+**Note**: все примеры будут даны для указанной выше модели::
 
-	queryset = MyModel.my_search.query('query')
+    queryset = MyModel.my_search.query('query')
 
-	# простые выборки
-	results1 = queryset.order_by('@weight', '@id', 'uint')
-	results2 = queryset.filter(uint=[1,2,5,7,10])
-	results3 = queryset.filter(bool=False)
-	results4 = queryset.exclude(uint=5)[0:10]
-	results5 = queryset.count()
+    # простые выборки
+    results1 = queryset.order_by('@weight', '@id', 'uint')
+    results2 = queryset.filter(uint=[1,2,5,7,10])
+    results3 = queryset.filter(bool=False)
+    results4 = queryset.exclude(uint=5)[0:10]
+    results5 = queryset.count()
 
-	# примеры посложнее
+    # примеры посложнее
 
-	# ForeignKey или OneToOneField
-	related_item = RelatedModel.objects.get(pk=1)
-	related_queryset = RelatedModel.objects.get(pk__in=[1,2])
+    # ForeignKey или OneToOneField
+    related_item = RelatedModel.objects.get(pk=1)
+    related_queryset = RelatedModel.objects.get(pk__in=[1,2])
 
-	# фильтр по идентификатору объекта из связанной модели
-	results6 = queryset.filter(related_field=100)
-	# или можно передать в качестве аргумента сам объект
-	results7 = queryset.filter(related_field=related_item)
+    # фильтр по идентификатору объекта из связанной модели
+    results6 = queryset.filter(related_field=100)
+    # или можно передать в качестве аргумента сам объект
+    results7 = queryset.filter(related_field=related_item)
 
-	# фильтр по списку идентификаторов нескольких объектов из связанной модели
-	results8 = queryset.filter(related_field__in=[4,5,6])
-	# или QuerySet
-	results9 = queryset.filter(related_field__in=related_queryset)
-
-
-	# ManyToManyField
-	m2m_item = M2MModel.objects.get(pk=1)
-	m2m_queryset = M2MModel.objects.filter(pk__in=[1,2,3])
-
-	# аналогично для MVA-атрибутов
-	results11 = queryset.filter(m2m_field=23)
-	results10 = queryset.filter(m2m_field=m2m_item)
-	results13 = queryset.filter(m2m_field__in=[2,6,9])
-	results12 = queryset.filter(m2m_field__in=m2m_queryset)
+    # фильтр по списку идентификаторов нескольких объектов из связанной модели
+    results8 = queryset.filter(related_field__in=[4,5,6])
+    # или QuerySet
+    results9 = queryset.filter(related_field__in=related_queryset)
 
 
-	# as of 2.0 you can now access an attribute to get the weight and similar arguments
-	for result in results1:
-		print result, result._sphinx
-	# you can also access a similar set of meta data on the queryset itself (once it's been sliced or executed in any way)
-	print results1._sphinx
+    # ManyToManyField
+    m2m_item = M2MModel.objects.get(pk=1)
+    m2m_queryset = M2MModel.objects.filter(pk__in=[1,2,3])
 
-	# as of 3.0 you can specify 'options', which are described in detail below.
+    # аналогично для MVA-атрибутов
+    results11 = queryset.filter(m2m_field=23)
+    results10 = queryset.filter(m2m_field=m2m_item)
+    results13 = queryset.filter(m2m_field__in=[2,6,9])
+    results12 = queryset.filter(m2m_field__in=m2m_queryset)
+
+
+    # as of 2.0 you can now access an attribute to get the weight and similar arguments
+    for result in results1:
+        print result, result._sphinx
+    # you can also access a similar set of meta data on the queryset itself (once it's been sliced or executed in any way)
+    print results1._sphinx
+
+    # as of 3.0 you can specify 'options', which are described in detail below.
 
 
 Some additional methods:
@@ -205,6 +205,7 @@ Config Generation
 django-sphinx now includes a tool to create sample configuration for your models. It will generate both a source, and index configuration for a model class. You will still need to manually tweak the output, and insert it into your configuration, but it should aid in initial setup.
 
 To use it::
+
 
     from djangosphinx.utils import *
 
