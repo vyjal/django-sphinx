@@ -14,7 +14,7 @@
 ---------
 
 Пример настройки и использования:
-
+```
     from djangosphinx.models import SphinxSearch
 
     class RelatedModel(models.Model)
@@ -85,6 +85,7 @@
                 'm2m_field',
             },
         )
+```
 
 **included_fields**
 
