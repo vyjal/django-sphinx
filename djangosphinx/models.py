@@ -216,7 +216,6 @@ class SphinxQuerySet(object):
         self._select_related_args   = {}
         self._select_related_fields = []
         self._filters               = {}
-        self._excludes              = {}
         self._extra                 = {}
         self._query                 = ''
         self.__metadata             = None
@@ -347,12 +346,12 @@ class SphinxQuerySet(object):
     # only works on attributes
     def filter(self, **kwargs):
         filters = self._filters.copy()
-        return self._clone(_filters=self._process_filter(filters, exclude=False, **kwargs))
+        return self._clone(_filters=self._process_filter(filters, False, **kwargs))
 
     # only works on attributes
     def exclude(self, **kwargs):
-        filters = self._excludes.copy()
-        return self._clone(_excludes=self._process_filter(filters, exclude=True, **kwargs))
+        filters = self._filters.copy()
+        return self._clone(_filters=self._process_filter(filters, True, **kwargs))
 
 
     def geoanchor(self, lat_attr, lng_attr, lat, lng):
@@ -480,54 +479,25 @@ class SphinxQuerySet(object):
         params.append('matchmode=%s' % (self._mode,))
         client.SetMatchMode(self._mode)
 
-        def _handle_filters(filter_list, exclude=False):
-            for name, values in filter_list.iteritems():
-                parts = len(name.split('__'))
-                if parts > 2:
-                    raise NotImplementedError('Related object lookups not supported')
-                elif parts == 2:
-                    # The float handling for __gt and __lt is kind of ugly..
-                    name, lookup = name.split('__', 1)
-                    is_float = isinstance(values[0], float)
+        def _handle_filters(filter_list):
+            for args in filter_list:
+                filter_type = args.pop(0)
 
-                    if lookup in ('gt', 'gte'):
-                        value = values[0]
-                        _max = MAX_FLOAT if is_float else MAX_INT
-                        if lookup == 'gt':
-                            value += (1.0/MAX_INT) if is_float else 1
-                        args = (name, value, _max, exclude)
-                    elif lookup in ('lt', 'lte'):
-                        value = values[0]
-                        _max = -MAX_FLOAT if is_float else -MAX_INT
-                        if lookup == 'lt':
-                            value -= (1.0/MAX_INT) if is_float else 1
-                        args = (name, _max, value, exclude)
-                    elif lookup == 'range':
-                        args = (name, values[0], values[1], exclude)
-                    elif lookup in ['in', 'exact', 'iexact']:
-                        pass
-                    else:
-                        raise NotImplementedError('Related object and/or field lookup "%s" not supported' % lookup)
-                    if is_float:
-                        client.SetFilterFloatRange(*args)
-                    elif not exclude and self.model and name == self.model._meta.pk.column:
-                        client.SetIDRange(*args[1:3])
-                    elif lookup in ['in', 'exact', 'iexact']:
-                        client.SetFilter(name, values, exclude)
-                    else:
-                        client.SetFilterRange(*args)
+                if filter_type == 'filter':
+                    client.SetFilter(*args)
+                elif filter_type == 'range':
+                    client.SetFilterRange(*args)
+                elif filter_type == 'float_range':
+                    client.SetFilterFloatRange(*args)
+                elif filter_type == 'id_range':
+                    client.SetIDRange(*args)
                 else:
-                    client.SetFilter(name, values, exclude)
+                    raise ValueError('Unknown filter_type `%s`' % filter_type)
 
         # Include filters
         if self._filters:
             params.append('filters=%s' % (self._filters,))
             _handle_filters(self._filters)
-
-        # Exclude filters
-        if self._excludes:
-            params.append('excludes=%s' % (self._excludes,))
-            _handle_filters(self._excludes, True)
 
         if self._groupby:
             params.append('groupby=%s' % (self._groupby,))
@@ -679,7 +649,9 @@ class SphinxQuerySet(object):
                 if is_float:
                     args.insert(0, 'float_range')
                 elif not exclude and self.model and field == self.model._meta.pk.name:
-                    args.insert(0, 'id_range')
+                    raise NotImplementedError('Document id filtering is not supported yet')
+                    #args = args[1:3]
+                    #args.insert(0, 'id_range')
 
             filters.setdefault(k, []).extend(args)
         return filters
