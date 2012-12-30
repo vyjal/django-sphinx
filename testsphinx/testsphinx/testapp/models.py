@@ -1,3 +1,5 @@
+# coding: utf-8
+
 from django.db import models
 from djangosphinx.models import SphinxSearch
 # Create your models here.
@@ -24,8 +26,10 @@ class Search(models.Model):
     stored_string = models.CharField(max_length=100)
 
     datetime = models.DateTimeField()
+    date = models.DateField()
     bool = models.BooleanField()
     uint = models.IntegerField()
+    float = models.FloatField(default=1.0)
 
     excluded_field = models.CharField(max_length=10)
     excluded_field2 = models.CharField(max_length=10)
@@ -64,3 +68,14 @@ class Search(models.Model):
 
     def __unicode__(self):
         return self.name
+
+# Пример неправильной модели
+
+"""
+class DoubleSphinxSearch(models.Model):
+
+    name = models.CharField(max_length=10)
+
+    search1 = SphinxSearch()
+    search2 = SphinxSearch()
+"""

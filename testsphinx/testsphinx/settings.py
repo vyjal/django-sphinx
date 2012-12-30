@@ -125,6 +125,7 @@ INSTALLED_APPS = (
     # 'django.contrib.admindocs',
     'djangosphinx',
     'testsphinx.testapp',
+    'south',
 )
 
 # A sample logging configuration. The only tangible logging

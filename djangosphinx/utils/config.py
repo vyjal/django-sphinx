@@ -13,6 +13,8 @@ from sphinxapi import sphinxapi
 from django.core.exceptions import ImproperlyConfigured
 from django.template.loader import select_template
 
+from djangosphinx.conf import *
+
 __all__ = ('generate_config_for_model', 'generate_config_for_models', 'generate_sphinx_config')
 
 DJANGO_MINOR_VERSION = float(".".join([str(django.VERSION[0]), str(django.VERSION[1])]))
@@ -57,7 +59,6 @@ def _is_sourcable_field(field):
 
 # No trailing slashes on paths
 
-DOCUMENT_ID_SHIFT = 24
 
 if DJANGO_MINOR_VERSION < 1.2:
     DEFAULT_SPHINX_PARAMS = {
@@ -77,14 +78,7 @@ else:
         'database_user': settings.DATABASES['default']['USER'],
         'database_password': settings.DATABASES['default']['PASSWORD'],
     }
-DEFAULT_SPHINX_PARAMS.update({
-    'log_path': getattr(settings, 'SPHINX_LOG_PATH', '/var/log/sphinx/searchd.log'),
-    'data_path': getattr(settings, 'SPHINX_DATA_PATH', '/var/data'),
-    'pid_file': getattr(settings, 'SPHINX_PID_FILE', '/var/log/searchd.pid'),
-    'sphinx_host': getattr(settings, 'SPHINX_HOST', '127.0.0.1'),
-    'sphinx_port': getattr(settings, 'SPHINX_PORT', '9312'),
-    'sphinx_api_version': getattr(sphinxapi, 'VER_COMMAND_SEARCH', 0x113),
-})
+DEFAULT_SPHINX_PARAMS.update(SEARCHD_SETTINGS)
 
 
 def get_index_context(index):
@@ -113,6 +107,8 @@ def get_sphinx_attr_type_for_field(field):
         float=(DecimalField, FloatField),
         timestamp=(DateField, DateTimeField, TimeField),
         bool=(BooleanField, NullBooleanField),
+
+        #multi=(ManyToManyField,)
     )
 
     for t in types:
@@ -399,7 +395,7 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
 
     #related_fields, join_statements, content_types = _process_related_fields_for_model(options, model_class)
     #related_stored_attrs = _process_related_attributes_for_model(options, model_class)
-    related_fields = join_statements = content_types = related_stored_attrs = []
+    join_statements = content_types = []
 
     related_fields, related_stored_attrs = _process_related_fields(fields, options, model_class)
 
