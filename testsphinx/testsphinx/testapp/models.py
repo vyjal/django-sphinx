@@ -79,3 +79,13 @@ class DoubleSphinxSearch(models.Model):
     search1 = SphinxSearch()
     search2 = SphinxSearch()
 """
+
+class FakeSphinxClient(object):
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def SetSerner(*args, **kwargs):
+        pass
+
+    def BuildExcerpts(self, *args, **kwargs):
+        return []

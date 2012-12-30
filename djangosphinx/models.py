@@ -297,15 +297,11 @@ class SphinxQuerySet(object):
 
     def _format_options(self, **kwargs):
         # перезаписываем rankmode и mode только если не установлены или заданы явно
-        if self._rankmode is None or 'rankmode' in kwargs:
-            kwargs['rankmode'] = getattr(sphinxapi,
-                                        kwargs.get('rankmode', getattr(settings,  'SPH_RANK_NONE', None)),
-                                        sphinxapi.SPH_RANK_NONE)
+        if 'rankmode' in kwargs:
+            kwargs['rankmode'] = getattr(sphinxapi, kwargs.get('rankmode'))
 
-        if self._mode is None or 'mode' in kwargs:
-            kwargs['mode'] = getattr(sphinxapi,
-                                    kwargs.get('mode', getattr(settings, 'SPHINX_MATCH_MODE', None)),
-                                    sphinxapi.SPH_MATCH_ANY)
+        if 'mode' in kwargs:
+            kwargs['mode'] = getattr(sphinxapi, kwargs.get('mode'))
 
         kwargs = dict([('_%s' % (key,), value) for key, value in kwargs.iteritems() if key in self.available_kwargs])
         return kwargs
@@ -544,6 +540,18 @@ class SphinxQuerySet(object):
 
         return results
 
+    def _check_field(self, field_name):
+        if field_name == 'pk' or field_name == self.model._meta.pk.column:
+            raise NotImplementedError('Document id filtering is not supported yet')
+            #return self.model._meta.pk
+
+        field = self.model._meta.get_field(field_name)
+
+        if get_sphinx_attr_type_for_field(field) == 'string':
+            raise TypeError('Can`t filter by string attribute `%s`' % type(field))
+
+        return field
+
     def _check_related_field(self, field, obj):
         if not isinstance(field, RelatedField):
             raise TypeError('An object can only be compared with Related field, not with `%s`' % type(field))
@@ -552,19 +560,6 @@ class SphinxQuerySet(object):
 
         if not isinstance(obj, related_model):
             raise TypeError('Field `%s` is not associated with the model `%s`' % (field.name, type(obj)))
-
-        return field
-
-    def _check_field(self, field_name):
-        if field_name == 'pk' or field_name == self.model._meta.pk.column:
-            raise NotImplementedError('Document id filtering is not supported yet')
-            #return self.model._meta.pk
-
-        field = self.model._meta.get_field(field_name)
-
-
-        if get_sphinx_attr_type_for_field(field) == 'string':
-            raise TypeError('Can`t filter by string attribute `%s`' % type(field))
 
         return field
 
@@ -578,7 +573,7 @@ class SphinxQuerySet(object):
         elif not isinstance(obj, (list, tuple, QuerySet)):
             value = obj
         else:
-            raise TypeError('Comparison operations require a single object, not a list')
+            raise TypeError('Comparison operations require a single object, not a `%s`' % type(obj))
 
         return to_sphinx(value)
 
@@ -600,12 +595,13 @@ class SphinxQuerySet(object):
         return map(to_sphinx, values)
 
     def _process_filter(self, filters, exclude, **kwargs):
-        """
-        Filter types:
-            filter: SetFilter
-            range: SetFilterRange
-            id_range: SetIDRange
-            float_range: SetFilterFloatRange
+        """\
+        Filter types        :   Sphinx Client functions
+
+            filter          :   SetFilter
+            range           :   SetFilterRange
+            id_range        :   SetIDRange
+            float_range     :   SetFilterFloatRange
 
         """
         for k, v in kwargs.iteritems():
@@ -657,7 +653,7 @@ class SphinxQuerySet(object):
                 elif lookup in ('lt', 'lte'):
                     if lookup == 'lt':
                         v -= (1.0/MAX_FLOAT) if is_float else 1
-                    args = [field, _max, v, exclude]
+                    args = [field, 0, v, exclude]
                 elif (field == lookup or lookup in ['exact', 'iexact']) and isinstance(v, (int, float)):
                     args = ('filter', field, [v], exclude)
                 else:
@@ -668,8 +664,11 @@ class SphinxQuerySet(object):
                         e = TypeError
                     raise e('Lookup "%s" is not supported for type `%s`' % (lookup, type(v)))
 
-                if is_float and args[0] != 'filter':
-                    args.insert(0, 'float_range')
+                if args[0] != 'filter':
+                    if is_float:
+                        args.insert(0, 'float_range')
+                    else:
+                        args.insert(0, 'range')
                 #elif self.model and (field == 'pk' or field == self.model._meta.pk.column):
                 #    raise NotImplementedError('Document id filtering is not supported yet')
                     #args = args[1:3]
