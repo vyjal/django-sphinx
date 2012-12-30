@@ -35,7 +35,7 @@ default settings.py values
 import warnings
 import os.path
 
-__version__ = (3, 1, 1)
+__version__ = (3, 1, 2)
 
 
 def _get_git_revision(path):
