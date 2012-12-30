@@ -11,7 +11,12 @@ import time
 from django.db.models.fields import FieldDoesNotExist
 from django.test import TestCase
 
+from django_any import any_model
+
+from djangosphinx.models import MAX_INT, MAX_FLOAT
+
 from models import *
+
 
 class FakeSphinxClient(object):
 
@@ -31,9 +36,15 @@ class FSCExcerpts(FakeSphinxClient):
 
 class TestSphinxQuerySet(TestCase):
 
+    def setUp(self):
+        for x in range(0, 10):
+            r = any_model(Related)
+            m = any_model(M2M)
+            any_model(Search, related=r, m2m=m)
+
     def test_doc_fields_list(self):
 
-        obj = Search.objects.get(pk=2)
+        obj = Search.objects.all()[0]
         qs = Search.search.none()
 
         inc_fields = ['text', 'excluded_field']
@@ -97,58 +108,146 @@ class TestSphinxQuerySet(TestCase):
         self.assertEqual(int_field, qs._check_field(int_field_name))
 
         # test _check_related_field
-        non_rel_field = 'name'
-        fk_field_name = 'related'
-        fk_field = Search._meta.get_field(fk_field_name)
-        m2m_field_name = 'm2m'
-        m2m_field = Search._meta.get_field(m2m_field_name)
+        non_rel_field = Search._meta.get_field('name')
+        fk_field = Search._meta.get_field('related')
+        m2m_field = Search._meta.get_field('m2m')
 
-        fk_obj = Related.objects.get(pk=2)
-        fk_qs = Related.objects.filter(pk__in=[2,3])
+        fk_obj = Related.objects.all()[0]
+        fk_qs = Related.objects.all()
 
-        m2m_obj = M2M.objects.get(pk=2)
-        m2m_qs = M2M.objects.filter(pk__in=[2,3])
+        m2m_obj = M2M.objects.all()[0]
+        m2m_qs = M2M.objects.all()
 
-        self.assertRaises(AttributeError, qs._check_related_field, non_rel_field, None)
+        self.assertRaises(TypeError, qs._check_related_field, non_rel_field, None)
 
-        self.assertRaises(TypeError, qs._check_related_field, fk_field_name, m2m_obj)
-        self.assertRaises(TypeError, qs._check_related_field, m2m_field_name, fk_obj)
+        self.assertRaises(TypeError, qs._check_related_field, fk_field, m2m_obj)
+        self.assertRaises(TypeError, qs._check_related_field, m2m_field, fk_obj)
 
-        self.assertEqual(fk_field, qs._check_related_field(fk_field_name, fk_obj))
-        self.assertEqual(m2m_field, qs._check_related_field(m2m_field_name, m2m_obj))
+        self.assertEqual(fk_field, qs._check_related_field(fk_field, fk_obj))
+        self.assertEqual(m2m_field, qs._check_related_field(m2m_field, m2m_obj))
 
 
 
         # test _process_filter
         # только числа и даты могут быть переданы в эту функцию (в том числе списками)
-        d = datetime.datetime.now()
-        sphinx_time = time.mktime(d.timetuple())
-        self.assertRaises(ValueError, qs._process_filter, {}, False, field='string')
-        self.assertEqual({'field': [1]}, qs._process_filter({}, False, field=1))
-        self.assertEqual({'field': [1]}, qs._process_filter({}, False, field=[1]))
-        self.assertEqual({'field': [1.0]}, qs._process_filter({}, False, field=1.0))
-        self.assertEqual({'field': [1.0]}, qs._process_filter({}, False, field=[1.0]))
-        self.assertEqual({'field': [sphinx_time]}, qs._process_filter({}, False, field=d))
-        self.assertEqual({'field': [sphinx_time]}, qs._process_filter({}, False, field=[d]))
 
+
+        # фильтровать можно только по нестроковым полям
+        self.assertRaises(TypeError, qs._process_filter, [], False, name='string')
+        # только по существующим полям модели
+        #TODO: добавить проверку существования поля в индексе
+        self.assertRaises(FieldDoesNotExist, qs._process_filter, [], False, some_field=1)
+        # и не по строкам
+        self.assertRaises(ValueError, qs._process_filter, [], False, uint='string')
+
+        # если не указана операция, аргумент не может быть списком
+        self.assertRaises(TypeError, qs._process_filter, [], False, uint=[])
+        # для операций сравнения так же аргумент не может быть списком
+        self.assertRaises(TypeError, qs._process_filter, [], False, uint__gt=[])
+        self.assertRaises(TypeError, qs._process_filter, [], False, uint__gte=[])
+        self.assertRaises(TypeError, qs._process_filter, [], False, uint__lt=[])
+        self.assertRaises(TypeError, qs._process_filter, [], False, uint__lte=[])
+        self.assertRaises(TypeError, qs._process_filter, [], False, uint__exact=[])
+        self.assertRaises(TypeError, qs._process_filter, [], False, uint__iexact=[])
+        # диапазон не может быть единственным значением
+        self.assertRaises(TypeError, qs._process_filter, [], False, uint__range=1)
+        # и списком с количеством значений, не равным 2
+        self.assertRaises(ValueError, qs._process_filter, [], False, uint__range=[1])
+        self.assertRaises(ValueError, qs._process_filter, [], False, uint__range=[1,2,3])
+        # список значений не может быть пустым
+        self.assertRaises(ValueError, qs._process_filter, [], False, uint__in=[])
+
+        # по идентификатору
+        item_id = 1
+        item_filter_args = ('filter', 'uint', [item_id], False)
+        self.assertEqual(item_filter_args, tuple(qs._process_filter([], False, uint=1)[0]))
+        self.assertEqual(item_filter_args, tuple(qs._process_filter([], False, uint__exact=1)[0]))
+        self.assertEqual(item_filter_args, tuple(qs._process_filter([], False, uint__iexact=1)[0]))
+
+        # по списку идентификаторов
+        item_list = [1,2,3,5]
+        item_list_filter_args = ('filter', 'uint', item_list, False)
+        self.assertEqual(item_list_filter_args, tuple(qs._process_filter([], False, uint__in=item_list)[0]))
+
+        # по диапазону идентификаторов
+        item_range = [1,2]
+        item_range_filter_args = ('range', 'uint', 1, 2, False)
+        self.assertEqual(item_range_filter_args, tuple(qs._process_filter([], False, uint__range=item_range)[0]))
+
+
+        # по private_keys фильтрация пока не поддерживается
+        #item_pk_range_filter_args = ('id_range', 1, 2)
+        #self.assertEqual(item_pk_range_filter_args, tuple(qs._process_filter([], False, pk=item_range)[0]))
+        self.assertRaises(NotImplementedError, qs._process_filter, [], False, pk=1)
+        self.assertRaises(NotImplementedError, qs._process_filter, [], False, id=1)
+        self.assertRaises(NotImplementedError, qs._process_filter, [], False, pk__gt=1)
+        self.assertRaises(NotImplementedError, qs._process_filter, [], False, pk__gte=1)
+        self.assertRaises(NotImplementedError, qs._process_filter, [], False, pk__lt=1)
+        self.assertRaises(NotImplementedError, qs._process_filter, [], False, pk__lte=1)
+        self.assertRaises(NotImplementedError, qs._process_filter, [], False, pk__exact=1)
+        self.assertRaises(NotImplementedError, qs._process_filter, [], False, pk__iexact=1)
+        self.assertRaises(NotImplementedError, qs._process_filter, [], False, pk__in=[1,2,3])
+        self.assertRaises(NotImplementedError, qs._process_filter, [], False, pk__range=[1,2])
+
+
+        # float-значения
+
+        # одно значение
+        item_float = 5.0
+        item_float_filter_args = ('filter', 'float', [item_float], False)
+
+        self.assertEqual(item_float_filter_args, tuple(qs._process_filter([], False, float=item_float)[0]))
+
+        # сравнение
+        _float_delta = (1.0/MAX_FLOAT)
+        item_float_filter_gt_args = ('float_range', 'float', item_float+_float_delta, MAX_FLOAT, False)
+        item_float_filter_gte_args = ('float_range', 'float', item_float, MAX_FLOAT, False)
+        item_float_filter_lt_args = ('float_range', 'float', MAX_FLOAT, item_float-_float_delta, False)
+        item_float_filter_lte_args = ('float_range', 'float', MAX_FLOAT, item_float, False)
+
+        self.assertEqual(item_float_filter_gt_args, tuple(qs._process_filter([], False, float__gt=item_float)[0]))
+        self.assertEqual(item_float_filter_gte_args, tuple(qs._process_filter([], False, float__gte=item_float)[0]))
+        self.assertEqual(item_float_filter_lt_args, tuple(qs._process_filter([], False, float__lt=item_float)[0]))
+        self.assertEqual(item_float_filter_lte_args, tuple(qs._process_filter([], False, float__lte=item_float)[0]))
+
+        # по диапазону float
+        item_float_range = (1.0, 5.0)
+        item_float_range_args = ('float_range', 'float', item_float_range[0], item_float_range[1], False)
+        self.assertEqual(item_float_range_args, tuple(qs._process_filter([], False, float__range=item_float_range)[0]))
+
+        item_float_list = [1.0, 5.5, 58.1]
+        item_float_list_args = ('filter', 'float', item_float_list, False)
+        self.assertEqual(item_float_list_args, tuple(qs._process_filter([], False, float__in=item_float_list)[0]))
+
+
+        # даты
+        # все даты преобразуются к float, поэтому проверим только, что функция их принимает
+        dt = datetime.datetime.now()
+        d = datetime.date.today()
+        sphinx_dt = time.mktime(dt.timetuple())
+        sphinx_d = time.mktime(d.timetuple())
+
+        item_dt_args = ('filter', 'datetime', [sphinx_dt], False)
+        item_d_args = ('filter', 'date', [sphinx_d], False)
+        self.assertEqual(item_dt_args, tuple(qs._process_filter([], False, datetime=dt)[0]))
+        self.assertEqual(item_d_args, tuple(qs._process_filter([], False, date=d)[0]))
 
 
         # а так же QuerySet`s и различные объекты
         # для переданного объекта должен возвращать список с его первичным ключем внутри
-        self.assertEqual({'related': [2]}, qs._process_filter({}, False, related=fk_obj))
-        # в том числе для range-запросов
-        self.assertEqual({'related__in': [2]}, qs._process_filter({}, False, related__in=fk_obj))
-        # но при этом должен выдавать ошибку, если поле не связано с переданным объектом
-        self.assertRaises(AttributeError, qs._process_filter, {}, False, name=fk_obj)
-        # а так же если поле отсутствует в модели
-        self.assertRaises(FieldDoesNotExist, qs._process_filter, {}, False, some_field=fk_obj)
+        item_related_args = ('filter', 'related', [fk_obj.pk], False)
+        self.assertEqual(item_related_args, tuple(qs._process_filter([], False, related=fk_obj)[0]))
+        # в том числе для запросов по спискам
+        item_related_in_args = ('filter', 'related', [fk_obj.pk], False)
+        self.assertEqual(item_related_in_args, tuple(qs._process_filter([], False, related__in=fk_obj)[0]))
 
+        item_related_qs_args = ('filter', 'related', [obj.pk for obj in fk_qs], False)
         # для QuerySet должен возвращать список первичных ключей из выборки
-        self.assertEqual({'related__in': [2,3]}, qs._process_filter({}, False, related__in=fk_qs))
+        self.assertEqual(item_related_qs_args, tuple(qs._process_filter([], False, related__in=fk_qs)[0]))
         # но при этом должен выдавать ошибку, если в QuerySet содержатся объекты не того типа
-        self.assertRaises(TypeError, qs._process_filter, {}, False, related__in=m2m_qs)
+        self.assertRaises(TypeError, qs._process_filter, [], False, related__in=m2m_qs)
 
         # фильтрация по полям связанных моделей пока не реализована
-        self.assertRaises(NotImplementedError, qs._process_filter, {}, False, related__name__in=fk_qs)
-        self.assertRaises(NotImplementedError, qs._process_filter, {}, False, related__name=fk_obj)
-        self.assertRaises(NotImplementedError, qs._process_filter, {}, False, related__name__exact=fk_obj)
+        self.assertRaises(NotImplementedError, qs._process_filter, [], False, related__name__in=fk_qs)
+        self.assertRaises(NotImplementedError, qs._process_filter, [], False, related__name=fk_obj)
+        self.assertRaises(NotImplementedError, qs._process_filter, [], False, related__name__exact=fk_obj)

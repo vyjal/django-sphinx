@@ -26,8 +26,10 @@ class Search(models.Model):
     stored_string = models.CharField(max_length=100)
 
     datetime = models.DateTimeField()
+    date = models.DateField()
     bool = models.BooleanField()
     uint = models.IntegerField()
+    float = models.FloatField(default=1.0)
 
     excluded_field = models.CharField(max_length=10)
     excluded_field2 = models.CharField(max_length=10)

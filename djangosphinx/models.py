@@ -17,8 +17,9 @@ from django.db import models
 from django.db.models.fields.related import RelatedField
 from django.db.models.query import Q, QuerySet
 from django.conf import settings
-from django.core.cache import cache
+# from django.core.cache import cache
 
+from djangosphinx.conf import *
 from djangosphinx.utils.config import get_sphinx_attr_type_for_field
 
 __all__ = ('SearchError', 'ConnectionError', 'SphinxSearch', 'SphinxRelation', 'SphinxQuerySet')
@@ -27,12 +28,10 @@ from django.contrib.contenttypes.models import ContentType
 from datetime import datetime, date
 
 # server settings
-SPHINX_SERVER           = getattr(settings, 'SPHINX_SERVER', 'localhost')
-SPHINX_PORT             = int(getattr(settings, 'SPHINX_PORT', 3312))
+SPHINX_SERVER           = SEARCHD_SETTINGS['sphinx_host']
+SPHINX_PORT             = SEARCHD_SETTINGS['sphinx_port']
 
-# These require search API 275 (Sphinx 0.9.8)
-SPHINX_RETRIES          = int(getattr(settings, 'SPHINX_RETRIES', 0))
-SPHINX_RETRIES_DELAY    = int(getattr(settings, 'SPHINX_RETRIES_DELAY', 5))
+
 
 MAX_INT = int(2 ** 31 - 1)
 MAX_FLOAT = 1.1e+38 # this is almost max, that fits in struct.pack 'f'
@@ -44,6 +43,9 @@ EMPTY_RESULT_SET = dict(
     words=[],
     attrs=[],
 )
+
+FILTER_LIST_OPERATIONS = ['in', 'range']
+FILTER_CMP_OPERATIONS = ['exact', 'iexact', 'gt', 'lt', 'gte', 'lte']
 
 UNDEFINED = object()
 
@@ -204,9 +206,6 @@ def to_sphinx(value):
         return float(value)
     return int(value)
 
-FILTER_LIST_OPERATIONS = ['in', 'range']
-FILTER_CMP_OPERATIONS = ['exact', 'iexact', 'gt', 'lt', 'gte', 'lte']
-
 
 class SphinxQuerySet(object):
     available_kwargs = ('rankmode', 'mode', 'weights', 'maxmatches', 'passages', 'passages_opts')
@@ -215,7 +214,7 @@ class SphinxQuerySet(object):
         self._select_related        = False
         self._select_related_args   = {}
         self._select_related_fields = []
-        self._filters               = {}
+        self._filters               = []
         self._extra                 = {}
         self._query                 = ''
         self.__metadata             = None
@@ -226,13 +225,13 @@ class SphinxQuerySet(object):
         self._sort                  = None
         self._weights               = [1, 100]
 
-        self._passages              = False
+        self._passages              = SPHINX_PASSAGES
         self._passages_opts         = {}
-        self._maxmatches            = 1000
+        self._maxmatches            = SPHINX_MAX_MATCHES
         self._result_cache          = None
         self._fields_cache          = {}
-        self._mode                  = sphinxapi.SPH_MATCH_ANY
-        self._rankmode              = getattr(sphinxapi, 'SPH_RANK_PROXIMITY_BM25', None)
+        self._mode                  = SPHINX_MATCH_MODE
+        self._rankmode              = SPHINX_RANK_MODE
         self.model                  = model
         self._anchor                = {}
         self.__metadata             = {}
@@ -345,12 +344,12 @@ class SphinxQuerySet(object):
 
     # only works on attributes
     def filter(self, **kwargs):
-        filters = self._filters.copy()
+        filters = self._filters[:]
         return self._clone(_filters=self._process_filter(filters, False, **kwargs))
 
     # only works on attributes
     def exclude(self, **kwargs):
-        filters = self._filters.copy()
+        filters = self._filters[:]
         return self._clone(_filters=self._process_filter(filters, True, **kwargs))
 
 
@@ -545,11 +544,9 @@ class SphinxQuerySet(object):
 
         return results
 
-    def _check_related_field(self, field_name, obj):
-        field = self.model._meta.get_field(field_name)
-
+    def _check_related_field(self, field, obj):
         if not isinstance(field, RelatedField):
-            raise AttributeError('An object can only be compared with Related field, not with `%s`' % type(field))
+            raise TypeError('An object can only be compared with Related field, not with `%s`' % type(field))
 
         related_model = field.rel.to
 
@@ -559,30 +556,42 @@ class SphinxQuerySet(object):
         return field
 
     def _check_field(self, field_name):
+        if field_name == 'pk' or field_name == self.model._meta.pk.column:
+            raise NotImplementedError('Document id filtering is not supported yet')
+            #return self.model._meta.pk
+
         field = self.model._meta.get_field(field_name)
+
 
         if get_sphinx_attr_type_for_field(field) == 'string':
             raise TypeError('Can`t filter by string attribute `%s`' % type(field))
 
         return field
 
-    def _process_single_obj_operation(self, field, obj):
+    def _process_single_obj_operation(self, field_name, obj):
+        field = self._check_field(field_name)
+
         if isinstance(obj, models.Model):
             self._check_related_field(field, obj)
             value = obj.pk
 
         elif not isinstance(obj, (list, tuple, QuerySet)):
-            self._check_field(field)
             value = obj
         else:
             raise TypeError('Comparison operations require a single object, not a list')
 
         return to_sphinx(value)
 
-    def _process_obj_list_operation(self, field, obj_list):
-        if isinstance(obj_list, QuerySet):
-            self._check_related_field(field, obj_list[0])
-            values = list(obj_list)
+    def _process_obj_list_operation(self, field_name, obj_list):
+        field = self._check_field(field_name)
+
+        if isinstance(obj_list, (models.Model, QuerySet)):
+            if isinstance(obj_list, models.Model):
+                self._check_related_field(field, obj_list)
+                values = [obj_list.pk]
+            else:
+                self._check_related_field(field, obj_list[0])
+                values = [obj.pk for obj in obj_list]
         elif hasattr(obj_list, '__iter__') or isinstance(obj_list, (list, tuple)):
             values = list(obj_list)
         else:
@@ -622,38 +631,51 @@ class SphinxQuerySet(object):
             # parse args
             if isinstance(v, list):
                 if lookup == 'range':
-                    if len(v) > 2:
+                    if len(v) != 2:
                         raise ValueError('Range may consist of two values')
-                    args = ('range', field, v[0], v[1], exclude)
+                    if isinstance(v[0], float):
+                        args = ('float_range', field, v[0], v[1], exclude)
+                    else:
+                        args = ('range', field, v[0], v[1], exclude)
+
                 elif lookup in ['in', 'exact', 'iexact']:
+                    if not len(v):
+                        raise ValueError('Empty list for `%s` lookup' % lookup)
                     args = ('filter', field, v, exclude)
                 else:
                     raise NotImplementedError('Lookup "%s" is not supported' % lookup)
+
+
             else:
                 args = []
                 is_float = isinstance(v, float)
                 _max = MAX_FLOAT if is_float else MAX_INT
                 if lookup in ('gt', 'gte'):
                     if lookup == 'gt':
-                        v += (1.0/MAX_INT) if is_float else 1
+                        v += (1.0/MAX_FLOAT) if is_float else 1
                     args = [field, v, _max, exclude]
                 elif lookup in ('lt', 'lte'):
                     if lookup == 'lt':
-                        v -= (1.0/MAX_INT) if is_float else 1
+                        v -= (1.0/MAX_FLOAT) if is_float else 1
                     args = [field, _max, v, exclude]
-                elif field == lookup:
+                elif (field == lookup or lookup in ['exact', 'iexact']) and isinstance(v, (int, float)):
                     args = ('filter', field, [v], exclude)
                 else:
-                    raise NotImplementedError('Lookup "%s" is not supported' % lookup)
+                    e = NotImplementedError
+                    if field == lookup:
+                        lookup = '='
+                    if isinstance(v, float):
+                        e = TypeError
+                    raise e('Lookup "%s" is not supported for type `%s`' % (lookup, type(v)))
 
-                if is_float:
+                if is_float and args[0] != 'filter':
                     args.insert(0, 'float_range')
-                elif not exclude and self.model and field == self.model._meta.pk.name:
-                    raise NotImplementedError('Document id filtering is not supported yet')
+                #elif self.model and (field == 'pk' or field == self.model._meta.pk.column):
+                #    raise NotImplementedError('Document id filtering is not supported yet')
                     #args = args[1:3]
                     #args.insert(0, 'id_range')
 
-            filters.setdefault(k, []).extend(args)
+            filters.append(args)
         return filters
 
     def get(self, **kwargs):
@@ -667,7 +689,7 @@ class SphinxQuerySet(object):
 
     def _decode_document_id(self, result):
         doc_id = int(result['id'])
-        result_ct = (doc_id & 0xFF000000) >> 24
+        result_ct = (doc_id & 0xFF000000) >> DOCUMENT_ID_SHIFT
         result['attrs']['content_type'] = result_ct
         result['id'] = doc_id & 0x00FFFFFF
 
