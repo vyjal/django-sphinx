@@ -33,7 +33,10 @@ SEARCHD_SETTINGS = {
 SPHINX_RETRIES = int(getattr(settings, 'SPHINX_RETRIES', 0))
 SPHINX_RETRIES_DELAY = int(getattr(settings, 'SPHINX_RETRIES_DELAY', 5))
 
-SPHINX_MATCH_MODE = getattr(settings, 'SPHINX_MATCH_MODE', 'SPH_MATCH_ALL')
-SPHINX_RANK_MODE = getattr(settings, 'SPHINX_RANK_MODE', 'SPH_RANK_NONE')
+_mode = getattr(settings, 'SPHINX_MATCH_MODE', 'SPH_MATCH_ALL')
+SPHINX_MATCH_MODE = getattr(sphinxapi, _mode)
+
+_rank_mode = getattr(settings, 'SPHINX_RANK_MODE', 'SPH_RANK_NONE')
+SPHINX_RANK_MODE = getattr(sphinxapi, _rank_mode)
 
 SPHINX_PASSAGES = bool(getattr(settings, 'SPHINX_PASSAGES', False))
