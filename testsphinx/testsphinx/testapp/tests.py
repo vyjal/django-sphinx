@@ -21,6 +21,11 @@ from djangosphinx import models as ds
 
 from models import *
 
+dt = datetime.datetime.now()
+d = datetime.date.today()
+sphinx_dt = time.mktime(dt.timetuple())
+sphinx_d = time.mktime(d.timetuple())
+
 class TestFunctions(TestCase):
 
     def test_to_sphinx(self):
@@ -314,8 +319,8 @@ class TestSphinxQuerySet(TestCase):
         self.assertRaises(TypeError, qs._process_filter, [], False, uint__gte=[])
         self.assertRaises(TypeError, qs._process_filter, [], False, uint__lt=[])
         self.assertRaises(TypeError, qs._process_filter, [], False, uint__lte=[])
-        self.assertRaises(TypeError, qs._process_filter, [], False, uint__exact=[])
-        self.assertRaises(TypeError, qs._process_filter, [], False, uint__iexact=[])
+        #self.assertRaises(TypeError, qs._process_filter, [], False, uint__exact=[])
+        #self.assertRaises(TypeError, qs._process_filter, [], False, uint__iexact=[])
         # диапазон не может быть единственным значением
         self.assertRaises(TypeError, qs._process_filter, [], False, uint__range=1)
         # и списком с количеством значений, не равным 2
@@ -328,8 +333,8 @@ class TestSphinxQuerySet(TestCase):
         item_id = 1
         item_filter_args = ('filter', 'uint', [item_id], False)
         self.assertEqual(item_filter_args, tuple(qs._process_filter([], False, uint=1)[0]))
-        self.assertEqual(item_filter_args, tuple(qs._process_filter([], False, uint__exact=1)[0]))
-        self.assertEqual(item_filter_args, tuple(qs._process_filter([], False, uint__iexact=1)[0]))
+        self.assertRaises(NotImplementedError, qs._process_filter, [], False, uint__exact=1)
+        self.assertRaises(NotImplementedError, qs._process_filter, [], False, uint__iexact=1)
 
         # по списку идентификаторов
         item_list = [1,2,3,5]
@@ -360,8 +365,8 @@ class TestSphinxQuerySet(TestCase):
         self.assertRaises(NotImplementedError, qs._process_filter, [], False, pk__gte=1)
         self.assertRaises(NotImplementedError, qs._process_filter, [], False, pk__lt=1)
         self.assertRaises(NotImplementedError, qs._process_filter, [], False, pk__lte=1)
-        self.assertRaises(NotImplementedError, qs._process_filter, [], False, pk__exact=1)
-        self.assertRaises(NotImplementedError, qs._process_filter, [], False, pk__iexact=1)
+        #self.assertRaises(NotImplementedError, qs._process_filter, [], False, pk__exact=1)
+        #self.assertRaises(NotImplementedError, qs._process_filter, [], False, pk__iexact=1)
         self.assertRaises(NotImplementedError, qs._process_filter, [], False, pk__in=[1,2,3])
         self.assertRaises(NotImplementedError, qs._process_filter, [], False, pk__range=[1,2])
 
@@ -398,10 +403,7 @@ class TestSphinxQuerySet(TestCase):
 
         # даты
         # все даты преобразуются к float, поэтому проверим только, что функция их принимает
-        dt = datetime.datetime.now()
-        d = datetime.date.today()
-        sphinx_dt = time.mktime(dt.timetuple())
-        sphinx_d = time.mktime(d.timetuple())
+
 
         item_dt_args = ('filter', 'datetime', [sphinx_dt], False)
         item_d_args = ('filter', 'date', [sphinx_d], False)
@@ -426,7 +428,7 @@ class TestSphinxQuerySet(TestCase):
         # фильтрация по полям связанных моделей пока не реализована
         self.assertRaises(NotImplementedError, qs._process_filter, [], False, related__name__in=fk_qs)
         self.assertRaises(NotImplementedError, qs._process_filter, [], False, related__name=fk_obj)
-        self.assertRaises(NotImplementedError, qs._process_filter, [], False, related__name__exact=fk_obj)
+        #self.assertRaises(NotImplementedError, qs._process_filter, [], False, related__name__exact=fk_obj)
 
     def test_get(self):
         self.fail('Test not implemented')
@@ -521,3 +523,288 @@ class TestSphinxQuerySet(TestCase):
         )
 
         return (opts, kwargs)
+
+
+class TestSphinxQLQueryset(TestCase):
+
+    def test__parse_index(self):
+        qs = ds.SphinxQLQuerySet()
+
+        self.assertEqual(0, len(qs._indexes))
+
+        qs = ds.SphinxQLQuerySet(index='one1_-')
+
+        self.assertListEqual(['one1_-'], qs._indexes)
+
+        qs = ds.SphinxQLQuerySet(index='one two')
+
+        self.assertListEqual(['one', 'two'], qs._indexes)
+
+        qs = ds.SphinxQLQuerySet(index='onE!@#$%^&*(){}?/+=|\\:;tWo!!!')
+
+        self.assertListEqual(['one', 'two'], qs._indexes)
+
+    def test_add_index(self):
+        qs = ds.SphinxQLQuerySet(index='one')
+
+        qs1 = qs.add_index('two')
+
+        self.assertListEqual(['one', 'two'], qs1._indexes)
+        self.assertListEqual(['one'], qs._indexes)
+
+    def test_remove_index(self):
+        qs = ds.SphinxQLQuerySet(index='one two')
+
+        qs1 = qs.remove_index('one')
+
+        self.assertListEqual(['two'], qs1._indexes)
+        self.assertListEqual(['one', 'two'], qs._indexes)
+
+    def test_query(self):
+        qs = ds.SphinxQLQuerySet()
+
+        qs1 = qs.query('test')
+
+        self.assertEqual('test', qs1._query)
+        self.assertEqual('', qs._query)
+
+    def test__process_single_object_operation(self):
+        self._prepare_models()
+
+        model_qs = ds.SphinxQLQuerySet(model=Search)
+        qs = ds.SphinxQLQuerySet()
+
+        obj = Related.objects.all()[0]
+
+        self.assertEqual(obj.pk, model_qs._process_single_obj_operation(obj))
+        self.assertRaises(ValueError, qs._process_single_obj_operation, obj)
+
+
+
+        self.assertEqual(sphinx_d, model_qs._process_single_obj_operation(d))
+        self.assertEqual(sphinx_d, qs._process_single_obj_operation(d))
+
+        self.assertEqual(sphinx_dt, model_qs._process_single_obj_operation(dt))
+        self.assertEqual(sphinx_dt, qs._process_single_obj_operation(dt))
+
+        mqs = Related.objects.all()
+        for x in [mqs, list(), tuple(), dict()]:
+            self.assertRaises(TypeError, qs._process_single_obj_operation, mqs)
+
+    def test__process_obj_list_operation(self):
+        self._prepare_models()
+
+        model_qs = ds.SphinxQLQuerySet(model=Search)
+        qs = ds.SphinxQLQuerySet()
+
+        obj = Related.objects.all()[0]
+        obj_list = Related.objects.all()
+
+        self.assertListEqual([obj.pk], model_qs._process_obj_list_operation(obj))
+        self.assertListEqual([o.pk for o in obj_list], model_qs._process_obj_list_operation(obj_list))
+        self.assertRaises(ValueError, qs._process_obj_list_operation, obj)
+        self.assertRaises(ValueError, qs._process_obj_list_operation, obj_list)
+
+        self.assertListEqual([1], qs._process_obj_list_operation(1))
+        self.assertListEqual([sphinx_d], qs._process_obj_list_operation(d))
+        self.assertListEqual([sphinx_dt], qs._process_obj_list_operation(dt))
+        self.assertListEqual([4.2], qs._process_obj_list_operation(4.2))
+        self.assertListEqual([1,2,3], qs._process_obj_list_operation([1,2,3]))
+        self.assertListEqual([1,2,3], qs._process_obj_list_operation((1,2,3)))
+        self.assertListEqual([1,2,3], qs._process_obj_list_operation(iter([1,2,3])))
+
+        self.assertRaises(ValueError, qs._process_obj_list_operation, dict(a=1,b=2))
+
+    def test__process_filters(self):
+        qs = ds.SphinxQLQuerySet()
+
+        self.assertDictEqual({}, qs._filters)
+
+        self.assertDictEqual({'field': '`field` = 1'}, qs._process_filters({}, False, field=1))
+        self.assertDictEqual({'field__in': '`field` IN (1,2,3)'}, qs._process_filters({}, False, field__in=[1,2,3]))
+        self.assertDictEqual({'field__gt': '`field` > 1'}, qs._process_filters({}, False, field__gt=1))
+        self.assertDictEqual({'field__gte': '`field` >= 1'}, qs._process_filters({}, False, field__gte=1))
+        self.assertDictEqual({'field__lt': '`field` < 1'}, qs._process_filters({}, False, field__lt=1))
+        self.assertDictEqual({'field__lte': '`field` <= 1'}, qs._process_filters({}, False, field__lte=1))
+        self.assertDictEqual({'field__range': '`field` BETWEEN 1 AND 2'}, qs._process_filters({}, False, field__range=[1,2]))
+
+        self.assertDictEqual({'field': '`field` != 1'}, qs._process_filters({}, True, field=1))
+        self.assertDictEqual({'field__in': '`field` NOT IN (1,2,3)'}, qs._process_filters({}, True, field__in=[1,2,3]))
+        self.assertDictEqual({'field__gt': '`field` <= 1'}, qs._process_filters({}, True, field__gt=1))
+        self.assertDictEqual({'field__gte': '`field` < 1'}, qs._process_filters({}, True, field__gte=1))
+        self.assertDictEqual({'field__lt': '`field` >= 1'}, qs._process_filters({}, True, field__lt=1))
+        self.assertDictEqual({'field__lte': '`field` > 1'}, qs._process_filters({}, True, field__lte=1))
+        self.assertDictEqual({'field__range': 'NOT `field` BETWEEN 1 AND 2'}, qs._process_filters({}, True, field__range=[1,2]))
+
+        self.assertRaises(ValueError, qs._process_filters, {}, False, field__range=[1])
+        self.assertRaises(ValueError, qs._process_filters, {}, False, field__range=[1,2,3])
+
+    def test__filter(self):
+        qs = ds.SphinxQLQuerySet()
+
+        self.assertDictEqual({}, qs._filters)
+
+        qs1 = qs.filter(field=1)
+
+        self.assertDictEqual({'field': '`field` = 1'}, qs1._filters)
+        self.assertDictEqual({}, qs._filters)
+
+        self._is_cloned(qs, qs1)
+
+    def test__exclude(self):
+        qs = ds.SphinxQLQuerySet()
+
+        self.assertDictEqual({}, qs._excludes)
+
+        qs1 = qs.exclude(field=1)
+
+        self.assertDictEqual({'field': '`field` != 1'}, qs1._excludes)
+        self.assertDictEqual({}, qs._excludes)
+
+        self._is_cloned(qs, qs1)
+
+    def test_values(self):
+        qs = ds.SphinxQLQuerySet()
+
+        self.assertEqual('*', qs._fields)
+        self.assertDictEqual({}, qs._aliases)
+
+        qs1 = qs.values('field1', 'field2')
+        self.assertEqual('`field1`, `field2`', qs1._fields)
+
+        qs2 = qs.values(x='karma*100+user_id')
+        self.assertDictEqual({'x': 'karma*100+user_id AS `x`'}, qs2._aliases)
+
+        self._is_cloned(qs, qs1)
+        self._is_cloned(qs, qs2)
+
+    def test_group_by(self):
+        qs = ds.SphinxQLQuerySet()
+
+        qs1 = qs.group_by('title')
+
+        self.assertEqual('GROUP BY `title`', qs1._group_by)
+        self.assertEqual('', qs._group_by)
+
+        # группировка только по одному полю или по вычисленному значению
+        self.assertRaises(TypeError, qs.group_by, 'field1', 'field2')
+
+    def test_order_by(self):
+        qs = ds.SphinxQLQuerySet()
+
+        qs1 = qs.order_by()
+        self.assertEqual(qs, qs1)
+
+        qs2 = qs.order_by('pk')
+        self.assertEqual('ORDER BY `id` ASC', qs2._order_by)
+
+        qs3 = qs.order_by('-title')
+        self.assertEqual('ORDER BY `title` DESC', qs3._order_by)
+
+        qs4 = qs.order_by('field1', '-field2')
+        self.assertEqual('ORDER BY `field1` ASC, `field2` DESC', qs4._order_by)
+
+    def test_group_order_by(self):
+        qs = ds.SphinxQLQuerySet()
+
+        qs1 = qs.group_order()
+        self.assertEqual(qs, qs1)
+
+        qs2 = qs.group_order('pk')
+        self.assertEqual('WITHIN GROUP ORDER BY `id` ASC', qs2._group_order_by)
+
+        qs3 = qs.group_order('-title')
+        self.assertEqual('WITHIN GROUP ORDER BY `title` DESC', qs3._group_order_by)
+
+        qs4 = qs.group_order('field1', '-field2')
+        self.assertEqual('WITHIN GROUP ORDER BY `field1` ASC, `field2` DESC', qs4._group_order_by)
+
+    def test_all(self):
+        qs = ds.SphinxQLQuerySet()
+
+        self.assertEqual([], list(qs))
+
+        qs2 = qs.all()
+
+        self.assertEqual(qs2, qs)
+
+    def test_none(self):
+        qs = ds.SphinxQLQuerySet()
+        qs1 = qs.none()
+
+        self.assertIsInstance(qs1, ds.EmptySphinxQLQuerySet)
+        self.assertListEqual([], list(qs1))
+
+    def test_reset(self):
+        qs = ds.SphinxQLQuerySet(model=Search, using='somedb', index='one, two')
+
+        self.assertEqual(qs.model, Search)
+        self.assertEqual('somedb', qs.using)
+        self.assertListEqual(['one', 'two'], qs._indexes)
+
+        qs1 = qs.reset()
+        self.assertEqual(qs.model, qs1.model)
+        self.assertEqual(qs.using, qs1.using)
+        self.assertListEqual(qs._indexes, qs1._indexes)
+
+        self._is_cloned(qs, qs1)
+
+    def test_set_options(self):
+        qs = ds.SphinxQLQuerySet()
+
+        qs1 = qs.set_options(ranker='bm25')
+        self.assertEqual('OPTION ranker=bm25', qs1._query_opts)
+
+        qs2 = qs.set_options(max_matches=1)
+        self.assertEqual('OPTION max_matches=1', qs2._query_opts)
+
+        qs3 = qs.set_options(cutoff=1)
+        self.assertEqual('OPTION cutoff=1', qs3._query_opts)
+
+        qs4 = qs.set_options(max_query_time=1)
+        self.assertEqual('OPTION max_query_time=1', qs4._query_opts)
+
+        qs5 = qs.set_options(retry_delay=1)
+        self.assertEqual('OPTION retry_delay=1', qs5._query_opts)
+
+        qs6 = qs.set_options(field_weights={'title': 100})
+        self.assertEqual('OPTION field_weights=(title=100)', qs6._query_opts)
+        #TODO: тест с regexp
+
+        qs7 = qs.set_options(index_weights={'one': 100})
+        self.assertEqual('OPTION index_weights=(one=100)', qs7._query_opts)
+        #TODO: тест с regexp
+
+        qs8 = qs.set_options(reverse_scan=True)
+        self.assertEqual('OPTION reverse_scan=1', qs8._query_opts)
+        qs9 = qs.set_options(reverse_scan=False)
+        self.assertEqual('OPTION reverse_scan=0', qs9._query_opts)
+        qs10 = qs.set_options(reverse_scan=1)
+        self.assertEqual('OPTION reverse_scan=1', qs10._query_opts)
+        qs11 = qs.set_options(reverse_scan=0)
+        self.assertEqual('OPTION reverse_scan=0', qs11._query_opts)
+
+        qs12 = qs.set_options(comment='some comment')
+        self.assertEqual('OPTION comment=\'some comment\'', qs12._query_opts)
+
+        opts = dict(ranker='bm25x', max_matches=list(), cutoff='sth', max_query_time=dict(),
+            retry_delay='aoe', field_weights=('title', 'text'),
+            index_weights=['one'], reverse_scan='stn', comment=1)
+
+        for x in opts:
+            self.assertRaises(AssertionError, qs.set_options, **{x: opts[x]})
+
+        Search.objects.update()
+
+
+    # internal
+    def _prepare_models(self):
+        for x in range(0, 10):
+            r = any_model(Related)
+            m = any_model(M2M)
+            any_model(Search, related=r, m2m=m)
+
+    def _is_cloned(self, qs1, qs2):
+        qs1.__dict__ = qs2.__dict__
+
+        self.assertNotEqual(qs1, qs2)
