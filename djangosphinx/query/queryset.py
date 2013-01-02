@@ -2,11 +2,10 @@
 
 __author__ = 'ego'
 
-# coding: utf-8
-
 import re
 import time
-
+import warnings
+from collections import OrderedDict
 from datetime import datetime, date
 
 try:
@@ -21,7 +20,11 @@ from django.db.models.query import QuerySet
 from django.utils.encoding import force_unicode
 
 from djangosphinx.conf import *
-from djangosphinx.constants import PASSAGES_OPTIONS, UNDEFINED, EMPTY_RESULT_SET
+from djangosphinx.constants import PASSAGES_OPTIONS, EMPTY_RESULT_SET, QUERY_OPTIONS, QUERY_RANKERS,\
+    FILTER_CMP_OPERATIONS, FILTER_CMP_INVERSE
+
+from djangosphinx.proxy import SphinxProxy
+from djangosphinx.query import SphinxQuery, conn_handler
 from djangosphinx.utils.config import get_sphinx_attr_type_for_field
 
 
@@ -37,21 +40,18 @@ def to_sphinx(value):
    return int(value)
 
 
+
 class SearchError(Exception):
     pass
 
-
-class ConnectionError(Exception):
-    pass
-
-
-class BaseSphinxQuerySet(object):
+class SphinxQuerySet(object):
 
     __index_match = re.compile(r'[^a-z0-9_-]*', re.I)
 
     def __init__(self, model=None, using=None, **kwargs):
         self.model = model
         self.using = using
+        self._db = conn_handler.connection
 
         self._iter = None
 
@@ -187,10 +187,63 @@ class BaseSphinxQuerySet(object):
         return self._clone(_query=force_unicode(query))
 
     def filter(self, **kwargs):
-        raise NotImplementedError
+        filters = self._filters.copy()
+
+        return self._clone(_filters=self._process_filters(filters, False, **kwargs))
 
     def exclude(self, **kwargs):
-        raise NotImplementedError
+        filters = self._excludes.copy()
+        return self._clone(_excludes=self._process_filters(filters, True, **kwargs))
+
+    def values(self, *args, **kwargs):
+        fields = ''
+        aliases = {}
+        if args:
+            fields = '`%s`' % '`, `'.join(args)
+        if kwargs:
+            for k, v in kwargs.iteritems():
+                aliases[k] = '%s AS `%s`' % (v, k)
+
+        if fields or aliases:
+            return self._clone(_fields=fields, _aliases=aliases)
+        return self
+
+    # Currently only supports grouping by a single column.
+    # The column however can be a computed expression
+    def group_by(self, field):
+        return self._clone(_group_by='GROUP BY `%s`' % field)
+
+    def order_by(self, *args):
+        sort_by = []
+        for arg in args:
+            order = 'ASC'
+            if arg[0] == '-':
+                order = 'DESC'
+                arg = arg[1:]
+            if arg == 'pk':
+                arg = 'id'
+
+            sort_by.append('`%s` %s' % (arg, order))
+
+        if sort_by:
+            return self._clone(_order_by='ORDER BY %s' % ', '.join(sort_by))
+        return self
+
+    def group_order(self, *args):
+        sort_by = []
+        for arg in args:
+            order = 'ASC'
+            if arg[0] == '-':
+                order = 'DESC'
+                arg = arg[1:]
+            if arg == 'pk':
+                arg = 'id'
+
+            sort_by.append('`%s` %s' % (arg, order))
+
+        if sort_by:
+            return self._clone(_group_order_by='WITHIN GROUP ORDER BY %s' % ', '.join(sort_by))
+        return self
 
     def count(self):
         return min(self.meta.get('total_found', 0), self._maxmatches)
@@ -273,49 +326,120 @@ class BaseSphinxQuerySet(object):
         self._query_string = None
 
     #internal
-    def _format_options(self, **kwargs):
-        raise NotImplementedError
 
     def _get_data(self):
-        raise NotImplementedError
+        assert(self._indexes)
 
-    def _clone(self, *args, **kwargs):
-        raise NotImplementedError
+        self._iter = SphinxQuery(self.query_string, self._query_args)
+        self._result_cache = []
+        self._metadata = self._iter.meta
+        self._fill_cache()
+
+    def _qstring(self):
+        if not self._query_string:
+            self._build_query()
+        return self._query_string
+
+    query_string = property(_qstring)
 
     # internal
-    def _fill_cache(self):
-        raise NotImplementedError
+    def _format_options(self, **kwargs):
+        opts = []
 
-    def _format_cache(self, docs, results, ct):
-        if self.model is None and len(self._indexes) == 1 and ct is not None:
-            self.model = ContentType.objects.get(pk=ct).model_class()
+        for k, v in kwargs.iteritems():
+            if k in QUERY_OPTIONS:
+                assert(isinstance(v, QUERY_OPTIONS[k]))
 
-        if self.model:
-            qs = self.get_query_set(self.model)
+                if k == 'ranker':
+                    assert(v in QUERY_RANKERS)
+                elif k == 'reverse_scan':
+                    v = int(v) & 0x0000000001
+                elif k in ('field_weights', 'index_weights'):
+                    v = '(%s)' % ', '.join(['%s=%s' % (x, v[x]) for x in v])
+                    #elif k == 'comment':
+                #    v = '\'%s\'' % self.escape(v)
 
-            qs = qs.filter(pk__in=results[ct].keys())
+                opts.append('%s=%s' % (k, v))
 
-            for obj in qs:
-                results[ct][obj.pk]['obj'] = obj
+        if opts:
+            return dict(_query_opts='OPTION %s' % ','.join(opts))
+        return None
 
-        else:
-            for ct in results:
-                model_class = ContentType.objects.get(pk=ct).model_class()
-                qs = self.get_query_set(model_class).filter(pk__in=results[ct].keys())
 
-                for obj in qs:
-                    results[ct][obj.pk]['obj'] = obj
+    def _fill_cache(self, num=None):
+        fields = self.meta['fields'].copy()
+        id_pos = fields.pop('id')
+        ct = None
+        results = {}
 
-        if self._passages:
-            for doc in docs.values():
-                doc['data']['passages'] = self._get_passages(doc['results']['obj'])
-                self._result_cache.append(SphinxProxy(doc['results']['obj'], doc['data']))
-        else:
-            for doc in docs.values():
-                self._result_cache.append(SphinxProxy(doc['results']['obj'], doc['data']))
+        docs = OrderedDict()
+
+        if self._iter:
+            try:
+                while True:
+                    doc = self._iter.next()
+                    doc_id = doc[id_pos]
+
+                    obj_id, ct = self._decode_document_id(int(doc_id))
+
+                    results.setdefault(ct, {})[obj_id] = {}
+
+                    docs.setdefault(doc_id, {})['results'] = results[ct][obj_id]
+                    docs[doc_id]['data'] = {}
+
+                    for field in fields:
+                        docs[doc_id]['data'].setdefault('fields', {})[field] = doc[fields[field]]
+            except StopIteration:
+                self._iter = None
+
+                if self.model is None and len(self._indexes) == 1 and ct is not None:
+                    self.model = ContentType.objects.get(pk=ct).model_class()
+
+                if self.model:
+                    qs = self.get_query_set(self.model)
+
+                    qs = qs.filter(pk__in=results[ct].keys())
+
+                    for obj in qs:
+                        results[ct][obj.pk]['obj'] = obj
+
+                else:
+                    for ct in results:
+                        model_class = ContentType.objects.get(pk=ct).model_class()
+                        qs = self.get_query_set(model_class).filter(pk__in=results[ct].keys())
+
+                        for obj in qs:
+                            results[ct][obj.pk]['obj'] = obj
+
+                if self._passages:
+                    for doc in docs.values():
+                        doc['data']['passages'] = self._get_passages(doc['results']['obj'])
+                        self._result_cache.append(SphinxProxy(doc['results']['obj'], doc['data']))
+                else:
+                    for doc in docs.values():
+                        self._result_cache.append(SphinxProxy(doc['results']['obj'], doc['data']))
+
 
     def _get_passages(self, instance):
-        raise NotImplementedError
+        fields = self._get_doc_fields(instance)
+
+        docs = [getattr(instance, f) for f in fields]
+        opts = self.passages if self.passages else ''
+
+        doc_format = ', '.join('%s' for x in range(0, len(fields)))
+        query = 'CALL SNIPPETS (({0:>s}), \'{1:>s}\', %s {2:>s})'.format(doc_format,
+            instance.__sphinx_indexes__[0],
+            opts)
+        docs.append(self._query)
+
+        c = self._db.cursor()
+        count = c.execute(query, docs)
+
+        passages = {}
+        for field in fields:
+            passages[field] = c.fetchone()[0].decode('utf-8')
+
+        return passages
 
     def _parse_indexes(self, index):
 
@@ -361,6 +485,47 @@ class BaseSphinxQuerySet(object):
 
         return map(to_sphinx, values)
 
+    def _process_filters(self, filters, exclude=False, **kwargs):
+        for k, v in kwargs.iteritems():
+            parts = k.split('__')
+            parts_len = len(parts)
+            field = parts[0]
+            lookup = parts[-1]
+
+            if parts_len == 1:  # один
+                #v = self._process_single_obj_operation(parts[0], v)
+                filters[k] = '`%s` %s %s' % (field,
+                                             '!=' if exclude else '=',
+                                             self._process_single_obj_operation(v))
+            elif parts_len == 2: # один exact или список, или сравнение
+                if lookup == 'in':
+                    filters[k] = '`%s` %sIN (%s)' % (field,
+                                                     'NOT ' if exclude else '',
+                                                     ','.join(str(x) for x in self._process_obj_list_operation(v)))
+                elif lookup == 'range':
+                    v = self._process_obj_list_operation(v)
+                    if len(v) != 2:
+                        raise ValueError('Range may consist of two values')
+                    if exclude:
+                        # not supported by sphinx. raises error!
+                        warnings.warn('Exclude range not supported by SphinxQL now!')
+                        filters[k] = 'NOT `%s` BETWEEN %i AND %i' % (field, v[0], v[1])
+                    else:
+                        filters[k] = '`%s` BETWEEN %i AND %i' % (field, v[0], v[1])
+
+                elif lookup in FILTER_CMP_OPERATIONS:
+                    filters[k] = '`%s` %s %s' % (field,
+                                                 FILTER_CMP_INVERSE[lookup]\
+                                                 if exclude\
+                                                 else FILTER_CMP_OPERATIONS[lookup],
+                                                 self._process_single_obj_operation(v))
+                else:
+                    raise NotImplementedError('Related object and/or field lookup "%s" not supported' % lookup)
+            else: # related
+                raise NotImplementedError('Related model fields lookup not supported')
+
+        return filters
+
     def _get_doc_fields(self, instance):
         cache = self._fields_cache.get(type(instance), None)
         if cache is None:
@@ -395,148 +560,70 @@ class BaseSphinxQuerySet(object):
 
         return cache
 
+    def _build_query(self):
+        self._query_args = []
 
-class EmptySphinxQuerySet(BaseSphinxQuerySet):
+        q = ['SELECT']
+        if self._fields:
+            q.append(self._fields)
+            if self._aliases:
+                q.append(',')
+
+        if self._aliases:
+            q.append(', '.join(self._aliases.values()))
+
+        q.extend(['FROM', ', '.join(self._indexes)])
+
+        if self._query or self._filters or self._excludes:
+            q.append('WHERE')
+        if self._query:
+            q.append('MATCH(%s)')
+            self._query_args.append(self._query)
+
+            if self._filters or self._excludes:
+                q.append('AND')
+        if self._filters:
+            q.append(' AND '.join(self._filters.values()))
+            if self._excludes:
+                q.append('AND')
+        if self._excludes:
+            q.append(' AND '.join(self._excludes.values()))
+
+        if self._group_by:
+            q.append(self._group_by)
+        if self._order_by:
+            q.append(self._order_by)
+        if self._group_order_by:
+            q.append(self._group_order_by)
+
+        q.append('LIMIT %i, %i' % (self._offset, self._limit))
+
+        if self._query_opts is not None:
+            q.append(self._query_opts)
+
+        self._query_string = ' '.join(q)
+
+        return self._query_string
+
+    def _clone(self, **kwargs):
+        # Clones the queryset passing any changed args
+        c = self.__class__()
+        c.__dict__.update(self.__dict__.copy())
+
+        c._result_cache = None
+        c._query_string = None
+        c._metadata = None
+        c._iter = None
+
+        for k, v in kwargs.iteritems():
+            setattr(c, k, v)
+            # почистим кеш в новом объекте, раз уж параметры запроса изменились
+
+        return c
+
+
+class EmptySphinxQuerySet(SphinxQuerySet):
     def _get_data(self):
         self._iter = iter([])
         self._result_cache = []
         self._metadata = EMPTY_RESULT_SET
-
-class SphinxProxy(object):
-    """
-    Acts exactly like a normal instance of an object except that
-    it will handle any special sphinx attributes in a `_sphinx` class.
-
-    If there is no `sphinx` attribute on the instance, it will also
-    add a proxy wrapper to `_sphinx` under that name as well.
-    """
-    __slots__ = ('__dict__', '__instance__', '_sphinx', 'sphinx')
-
-    def __init__(self, instance, attributes):
-        object.__setattr__(self, '__instance__', instance)
-        object.__setattr__(self, '_sphinx', attributes)
-
-    def _get_current_object(self):
-        """
-        Return the current object.  This is useful if you want the real object
-        behind the proxy at a time for performance reasons or because you want
-        to pass the object into a different context.
-        """
-        return self.__instance__
-    _current_object = property(_get_current_object)
-
-    def __dict__(self):
-        try:
-            return self._current_object.__dict__
-        except RuntimeError:
-            return AttributeError('__dict__')
-    __dict__ = property(__dict__)
-
-    def __repr__(self):
-        try:
-            obj = self._current_object
-        except RuntimeError:
-            return '<%s unbound>' % self.__class__.__name__
-        return repr(obj)
-
-    def __nonzero__(self):
-        try:
-            return bool(self._current_object)
-        except RuntimeError:
-            return False
-
-    def __unicode__(self):
-        try:
-            return unicode(self._current_object)
-        except RuntimeError:
-            return repr(self)
-
-    def __dir__(self):
-        try:
-            return dir(self._current_object)
-        except RuntimeError:
-            return []
-
-    # def __getattribute__(self, name):
-    #     if not hasattr(self._current_object, 'sphinx') and name == 'sphinx':
-    #         name = '_sphinx'
-    #     if name == '_sphinx':
-    #         return object.__getattribute__(self, name)
-    #     print object.__getattribute__(self, '_current_object')
-    #     return getattr(object.__getattribute__(self, '_current_object'), name)
-
-    def __getattr__(self, name, value=UNDEFINED):
-        if not hasattr(self._current_object, 'sphinx') and name == 'sphinx':
-            name = '_sphinx'
-        if name == '_sphinx':
-            return getattr(self, '_sphinx', value)
-        if value == UNDEFINED:
-            return getattr(self._current_object, name)
-        return getattr(self._current_object, name, value)
-
-    def __setattr__(self, name, value):
-        if name == '_sphinx':
-            return object.__setattr__(self, '_sphinx', value)
-        elif name == 'sphinx':
-            if not hasattr(self._current_object, 'sphinx'):
-                return object.__setattr__(self, '_sphinx', value)
-        return setattr(self._current_object, name, value)
-
-    def __setitem__(self, key, value):
-        self._current_object[key] = value
-
-    def __delitem__(self, key):
-        del self._current_object[key]
-
-    def __setslice__(self, i, j, seq):
-        self._current_object[i:j] = seq
-
-    def __delslice__(self, i, j):
-        del self._current_object[i:j]
-
-    __delattr__ = lambda x, n: delattr(x._current_object, n)
-    __str__ = lambda x: str(x._current_object)
-    __unicode__ = lambda x: unicode(x._current_object)
-    __lt__ = lambda x, o: x._current_object < o
-    __le__ = lambda x, o: x._current_object <= o
-    __eq__ = lambda x, o: x._current_object == o
-    __ne__ = lambda x, o: x._current_object != o
-    __gt__ = lambda x, o: x._current_object > o
-    __ge__ = lambda x, o: x._current_object >= o
-    __cmp__ = lambda x, o: cmp(x._current_object, o)
-    __hash__ = lambda x: hash(x._current_object)
-    # attributes are currently not callable
-    # __call__ = lambda x, *a, **kw: x._current_object(*a, **kw)
-    __len__ = lambda x: len(x._current_object)
-    __getitem__ = lambda x, i: x._current_object[i]
-    __iter__ = lambda x: iter(x._current_object)
-    __contains__ = lambda x, i: i in x._current_object
-    __getslice__ = lambda x, i, j: x._current_object[i:j]
-    __add__ = lambda x, o: x._current_object + o
-    __sub__ = lambda x, o: x._current_object - o
-    __mul__ = lambda x, o: x._current_object * o
-    __floordiv__ = lambda x, o: x._current_object // o
-    __mod__ = lambda x, o: x._current_object % o
-    __divmod__ = lambda x, o: x._current_object.__divmod__(o)
-    __pow__ = lambda x, o: x._current_object ** o
-    __lshift__ = lambda x, o: x._current_object << o
-    __rshift__ = lambda x, o: x._current_object >> o
-    __and__ = lambda x, o: x._current_object & o
-    __xor__ = lambda x, o: x._current_object ^ o
-    __or__ = lambda x, o: x._current_object | o
-    __div__ = lambda x, o: x._current_object.__div__(o)
-    __truediv__ = lambda x, o: x._current_object.__truediv__(o)
-    __neg__ = lambda x: -(x._current_object)
-    __pos__ = lambda x: +(x._current_object)
-    __abs__ = lambda x: abs(x._current_object)
-    __invert__ = lambda x: ~(x._current_object)
-    __complex__ = lambda x: complex(x._current_object)
-    __int__ = lambda x: int(x._current_object)
-    __long__ = lambda x: long(x._current_object)
-    __float__ = lambda x: float(x._current_object)
-    __oct__ = lambda x: oct(x._current_object)
-    __hex__ = lambda x: hex(x._current_object)
-    __index__ = lambda x: x._current_object.__index__()
-    __coerce__ = lambda x, o: x.__coerce__(x, o)
-    __enter__ = lambda x: x.__enter__()
-    __exit__ = lambda x, *a, **kw: x.__exit__(*a, **kw)
