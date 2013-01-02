@@ -35,12 +35,9 @@ EMPTY_RESULT_SET = dict(
     time=0.0,
 )
 
-MAX_INT = int(2 ** 31 - 1)
-MAX_FLOAT = 1.1e+38 # this is almost max, that fits in struct.pack 'f'
-
 # Both
 
-UNDEFINED = object()
+
 
 PASSAGES_OPTIONS = dict(# DEFAULTS
     before_match=(str, unicode), # '<b>'

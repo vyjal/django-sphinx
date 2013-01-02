@@ -22,9 +22,7 @@ SEARCHD_SETTINGS = {
     'data_path': getattr(settings, 'SPHINX_DATA_PATH', '/var/data/').rstrip('/'),
     'pid_file': getattr(settings, 'SPHINX_PID_FILE', '/var/run/searchd.pid'),
     'sphinx_host': getattr(settings, 'SPHINX_HOST', '127.0.0.1'),
-    'sphinx_api_port': getattr(settings, 'SPHINX_API_PORT', 9312),
-    'sphinx_mysql_port': getattr(settings, 'SPHINX_MYSQL_PORT', 9306),
-    'sphinx_api_version': getattr(sphinxapi, 'VER_COMMAND_SEARCH', 0x113),
+    'sphinx_port': getattr(settings, 'SPHINX_PORT', 9306),
     'max_matches': SPHINX_MAX_MATCHES,
 }
 

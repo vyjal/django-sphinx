@@ -23,8 +23,8 @@ from djangosphinx.conf import *
 from djangosphinx.constants import PASSAGES_OPTIONS, EMPTY_RESULT_SET, QUERY_OPTIONS, QUERY_RANKERS,\
     FILTER_CMP_OPERATIONS, FILTER_CMP_INVERSE
 
-from djangosphinx.proxy import SphinxProxy
-from djangosphinx.query import SphinxQuery, conn_handler
+from djangosphinx.query.proxy import SphinxProxy
+from djangosphinx.query.query import SphinxQuery, conn_handler
 from djangosphinx.utils.config import get_sphinx_attr_type_for_field
 
 
@@ -176,10 +176,7 @@ class SphinxQuerySet(object):
 
         return self._clone(_indexes=_indexes)
 
-    def _get_index(self):
-        return ' '.join(self._indexes)
 
-    index = property(_get_index)
 
     # querying
 
@@ -188,14 +185,13 @@ class SphinxQuerySet(object):
 
     def filter(self, **kwargs):
         filters = self._filters.copy()
-
         return self._clone(_filters=self._process_filters(filters, False, **kwargs))
 
     def exclude(self, **kwargs):
         filters = self._excludes.copy()
         return self._clone(_excludes=self._process_filters(filters, True, **kwargs))
 
-    def values(self, *args, **kwargs):
+    def fields(self, *args, **kwargs):
         fields = ''
         aliases = {}
         if args:
@@ -259,15 +255,9 @@ class SphinxQuerySet(object):
 
     # other
     def reset(self):
-           return self.__class__(self.model, self.using, index=' '.join(self._indexes))
+           return self.__class__(self.model, self.using, index=self.index)
 
-    def _meta(self):
-       if self._metadata is None:
-           self._get_data()
 
-       return self._metadata
-
-    meta = property(_meta)
 
     def get_query_set(self, model):
         qs = model._default_manager
@@ -302,12 +292,7 @@ class SphinxQuerySet(object):
         if opts_list:
             self._passages_string = ', %s' % ', '.join(opts_list)
 
-    def _get_passages_string(self):
-        if self._passages_string is None:
-            self._build_passages_string()
-        return self._passages_string
 
-    passages = property(_get_passages_string)
 
 
     def set_options(self, **kwargs):
@@ -324,6 +309,28 @@ class SphinxQuerySet(object):
             self._limit = stop - start
 
         self._query_string = None
+
+    # Properties
+
+    def _get_index(self):
+        return ' '.join(self._indexes)
+
+    index = property(_get_index)
+
+    def _meta(self):
+        if self._metadata is None:
+            self._get_data()
+
+        return self._metadata
+
+    meta = property(_meta)
+
+    def _get_passages_string(self):
+        if self._passages_string is None:
+            self._build_passages_string()
+        return self._passages_string
+
+    passages = property(_get_passages_string)
 
     #internal
 

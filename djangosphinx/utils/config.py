@@ -9,8 +9,6 @@ from django.db.models.fields import *
 from django.db.models.fields.related import ForeignKey, ManyToManyField, OneToOneField
 from django.contrib.contenttypes.models import ContentType
 
-from sphinxapi import sphinxapi
-from django.core.exceptions import ImproperlyConfigured
 from django.template.loader import select_template
 
 from djangosphinx.conf import *
@@ -36,7 +34,6 @@ def _get_database_engine():
 def _get_template(name, index=None):
 
     paths = [
-        'sphinx/api%s/' % sphinxapi.VER_COMMAND_SEARCH,
         'sphinx/'
     ]
 
@@ -47,7 +44,7 @@ def _get_template(name, index=None):
 
 def _is_sourcable_field(field):
     # We can use float fields in 0.98
-    if sphinxapi.VER_COMMAND_SEARCH >= 0x113 and (isinstance(field, models.FloatField) or isinstance(field, models.DecimalField)):
+    if isinstance(field, models.FloatField) or isinstance(field, models.DecimalField):
         return True
     elif isinstance(field, models.ForeignKey):
         return True
@@ -229,8 +226,6 @@ def _process_options_for_model_fields(options, model_fields, model_class):
     for column in stored_attrs_list:
         field = model_class._meta.get_field(column)
         if get_sphinx_attr_type_for_field(field) == 'string':
-            if sphinxapi.VER_COMMAND_SEARCH < 0x117:
-                raise ImproperlyConfigured('Stored string attributes require a Sphinx API for version 1.10beta or above.')
 
             attr_type = get_sphinx_attr_type_for_field(field)
             stored_attrs.setdefault(attr_type, []).append(field.column)

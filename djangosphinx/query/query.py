@@ -12,8 +12,10 @@ from django.utils.encoding import force_unicode
 from djangosphinx.conf import *
 from django.core.signals import request_finished
 
+
 class ConnectionError(Exception):
    pass
+
 
 class ConnectionHandler(object):
     def __init__(self):
@@ -23,7 +25,7 @@ class ConnectionHandler(object):
         if hasattr(self._connections, 'sphinx_database_connection'):
             return getattr(self._connections, 'sphinx_database_connection')
 
-        conn = MySQLdb.connect(host=SEARCHD_SETTINGS['sphinx_host'], port=SEARCHD_SETTINGS['sphinx_mysql_port'])
+        conn = MySQLdb.connect(host=SEARCHD_SETTINGS['sphinx_host'], port=SEARCHD_SETTINGS['sphinx_port'])
         setattr(self._connections, 'sphinx_database_connection', conn)
         return conn
 
@@ -36,6 +38,7 @@ def close_connection(**kwargs):
     conn_handler.connection.close()
 
 request_finished.connect(close_connection)
+
 
 class SphinxQuery(object):
     _arr_regexp = re.compile(r'^([a-z]+)\[(\d+)\]', re.I)

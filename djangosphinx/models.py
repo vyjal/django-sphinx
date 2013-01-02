@@ -2,7 +2,7 @@
 
 import warnings
 
-from djangosphinx.backends import *
+from djangosphinx.query import SphinxQuerySet
 
 
 class SphinxModelManager(object):
@@ -30,19 +30,6 @@ class SphinxModelManager(object):
         return self._get_query_set().query(*args, **kwargs)
 
 
-'''
-class SphinxInstanceManager(object):
-    """Collection of tools useful for objects which are in a Sphinx index."""
-    # TODO: deletion support
-    def __init__(self, instance, index):
-        self._instance = instance
-        self._index = index
-
-    def update(self, **kwargs):
-        assert sphinxapi.VER_COMMAND_SEARCH >= 0x113, "You must upgrade sphinxapi to version 0.98 to use UpdateAttributes."
-        sphinxapi.UpdateAttributes(self._index, kwargs.keys(), dict(self.instance.pk, map(to_sphinx, kwargs.values())))
-'''
-
 class SphinxSearch(object):
     def __init__(self, index=None, using=None, **kwargs):
         # Metadata for things like excluded_fields, included_fields, etc
@@ -61,11 +48,6 @@ class SphinxSearch(object):
     def __call__(self, index, **kwargs):
         warnings.warn('For non-model searches use a SphinxQuerySet instance.', DeprecationWarning)
         return SphinxQuerySet(index=index, using=self.using, **kwargs)
-
-    #def __get__(self, instance, model, **kwargs):
-    #    if instance:
-    #        return SphinxInstanceManager(instance, self._index)
-    #    return self._sphinx
 
     def get_query_set(self):
         """Override this method to change the QuerySet used for config generation."""
