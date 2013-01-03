@@ -3,14 +3,14 @@
 __author__ = 'ego'
 
 from django.conf import settings
+from djangosphinx.constants import SNIPPETS_OPTIONS
 
 __all__ = [
     'DOCUMENT_ID_SHIFT',
     'SEARCHD_SETTINGS',
     'SPHINX_RETRIES', 'SPHINX_RETRIES_DELAY',
-    'SPHINX_MATCH_MODE', 'SPHINX_MAX_MATCHES',
-    'SPHINX_RANK_MODE',
-    'SPHINX_PASSAGES'
+    'SPHINX_MAX_MATCHES',
+    'SPHINX_SNIPPETS', 'SPHINX_SNIPPETS_OPTS'
 ]
 
 DOCUMENT_ID_SHIFT = 24
@@ -30,4 +30,15 @@ SEARCHD_SETTINGS = {
 SPHINX_RETRIES = int(getattr(settings, 'SPHINX_RETRIES', 0))
 SPHINX_RETRIES_DELAY = int(getattr(settings, 'SPHINX_RETRIES_DELAY', 5))
 
-SPHINX_PASSAGES = bool(getattr(settings, 'SPHINX_PASSAGES', False))
+SPHINX_SNIPPETS = bool(getattr(settings, 'SPHINX_SNIPPETS', False))
+
+_snip_opts = getattr(settings, 'SPHINX_SNIPPETS_OPTIONS', {})
+
+SPHINX_SNIPPETS_OPTS = {}
+for k, v in _snip_opts.iteritems():
+    assert(isinstance(v, SNIPPETS_OPTIONS[k]))
+
+    if isinstance(v, bool):
+        v = int(v)
+
+    SPHINX_SNIPPETS_OPTS[k] = v

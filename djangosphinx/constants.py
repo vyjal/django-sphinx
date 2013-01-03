@@ -39,7 +39,7 @@ EMPTY_RESULT_SET = dict(
 
 
 
-PASSAGES_OPTIONS = dict(# DEFAULTS
+SNIPPETS_OPTIONS = dict(# DEFAULTS
     before_match=(str, unicode), # '<b>'
     after_match=(str, unicode), # '</b>'
     chunk_separator=(str, unicode), # '...'

@@ -20,7 +20,7 @@ from django.db.models.query import QuerySet
 from django.utils.encoding import force_unicode
 
 from djangosphinx.conf import *
-from djangosphinx.constants import PASSAGES_OPTIONS, EMPTY_RESULT_SET, QUERY_OPTIONS, QUERY_RANKERS,\
+from djangosphinx.constants import SNIPPETS_OPTIONS, EMPTY_RESULT_SET, QUERY_OPTIONS, QUERY_RANKERS,\
     FILTER_CMP_OPERATIONS, FILTER_CMP_INVERSE
 
 from djangosphinx.query.proxy import SphinxProxy
@@ -70,26 +70,23 @@ class SphinxQuerySet(object):
 
         self._query_opts = None
 
-        self._limit = 20
-        self._offset = 0
+        self._limit = None
+        self._offset = None
 
-        self._query_string = ''
         self._result_cache = None
         self._fields_cache = {}
         self._metadata = None
 
-        self._maxmatches = SPHINX_MAX_MATCHES
+        self._maxmatches = kwargs.pop('maxmatches', SPHINX_MAX_MATCHES)
 
-        self._passages = SPHINX_PASSAGES
-        self._passages_opts = {}
-        self._passages_string = {}
+        self._snippets = kwargs.pop('snippets', SPHINX_SNIPPETS)
+        self._snippets_opts = kwargs.pop('snippets_opts', SPHINX_SNIPPETS_OPTS)
+        self._snippets_string = None
 
         if model:
             self._indexes = self._parse_indexes(kwargs.pop('index', model._meta.db_table))
         else:
             self._indexes = self._parse_indexes(kwargs.pop('index', None))
-
-        self._index = self.index
 
     def __len__(self):
         return self.count()
@@ -153,10 +150,7 @@ class SphinxQuerySet(object):
         except Exception, e:
             raise IndexError(e.args)
 
-    def next(self):
-        raise NotImplementedError
-
-    # indexes
+    # Indexes
 
     def add_index(self, index):
         _indexes = self._indexes[:]
@@ -176,9 +170,7 @@ class SphinxQuerySet(object):
 
         return self._clone(_indexes=_indexes)
 
-
-
-    # querying
+    # Querying
 
     def query(self, query):
         return self._clone(_query=force_unicode(query))
@@ -191,7 +183,7 @@ class SphinxQuerySet(object):
         filters = self._excludes.copy()
         return self._clone(_excludes=self._process_filters(filters, True, **kwargs))
 
-    def fields(self, *args, **kwargs):
+    def values(self, *args, **kwargs):
         fields = ''
         aliases = {}
         if args:
@@ -225,7 +217,7 @@ class SphinxQuerySet(object):
             return self._clone(_order_by='ORDER BY %s' % ', '.join(sort_by))
         return self
 
-    def group_order(self, *args):
+    def group_order_by(self, *args):
         sort_by = []
         for arg in args:
             order = 'ASC'
@@ -252,12 +244,10 @@ class SphinxQuerySet(object):
        qs.__dict__.update(self.__dict__.copy())
        return qs
 
-
-    # other
     def reset(self):
            return self.__class__(self.model, self.using, index=self.index)
 
-
+    # !
 
     def get_query_set(self, model):
         qs = model._default_manager
@@ -268,33 +258,7 @@ class SphinxQuerySet(object):
     def escape(self, value):
         return re.sub(r"([=\(\)|\-!@~\"&/\\\^\$\=])", r"\\\1", value)
 
-
-
-    def set_passages(self, enable=True, **kwargs):
-        self._passages = enable
-
-        for k, v in kwargs.iteritems():
-            if k in PASSAGES_OPTIONS:
-                assert(isinstance(v, PASSAGES_OPTIONS[k]))
-
-                if isinstance(v, bool):
-                    v = int(v)
-
-                self._passages_opts[k] = v
-
-        self._passages_string = None
-
-    def _build_passages_string(self):
-        opts_list = []
-        for k, v in self._passages_opts.iteritems():
-            opts_list.append("'%s' AS `%s`" % (self.escape(v), k))
-
-        if opts_list:
-            self._passages_string = ', %s' % ', '.join(opts_list)
-
-
-
-
+    ## Options
     def set_options(self, **kwargs):
         kwargs = self._format_options(**kwargs)
         if kwargs is not None:
@@ -307,8 +271,6 @@ class SphinxQuerySet(object):
             self._offset = int(start)
         if stop is not None:
             self._limit = stop - start
-
-        self._query_string = None
 
     # Properties
 
@@ -325,12 +287,12 @@ class SphinxQuerySet(object):
 
     meta = property(_meta)
 
-    def _get_passages_string(self):
-        if self._passages_string is None:
-            self._build_passages_string()
-        return self._passages_string
+    def _get_snippets_string(self):
+        if self._snippets_string is None:
+            self._build_snippets_string()
+        return self._snippets_string
 
-    passages = property(_get_passages_string)
+    snippets = property(_get_snippets_string)
 
     #internal
 
@@ -342,17 +304,36 @@ class SphinxQuerySet(object):
         self._metadata = self._iter.meta
         self._fill_cache()
 
-    def _qstring(self):
-        if not self._query_string:
-            self._build_query()
-        return self._query_string
 
-    query_string = property(_qstring)
 
-    # internal
+    ## Options
+    def _parse_indexes(self, index):
+        if index is None:
+            return list()
+
+        return [x.lower() for x in re.split(self.__index_match, index) if x]
+
     def _format_options(self, **kwargs):
-        opts = []
+        opts_dict = dict()
 
+        snippets = kwargs.pop('snippets', None)
+        if snippets is not None:
+            opts_dict['_snippets'] = snippets
+
+        snippets_opts = kwargs.pop('snippets_opts', {})
+        for k, v in snippets_opts.iteritems():
+            if k in SNIPPETS_OPTIONS:
+                assert(isinstance(v, SNIPPETS_OPTIONS[k]))
+
+                if isinstance(v, bool):
+                    v = int(v)
+
+                opts_dict.setdefault('_snippets_opts', {})[k] = v
+
+        if '_snippets_opts' in opts_dict:
+            opts_dict['_snippets_string'] = None
+
+        query_opts = []
         for k, v in kwargs.iteritems():
             if k in QUERY_OPTIONS:
                 assert(isinstance(v, QUERY_OPTIONS[k]))
@@ -366,12 +347,22 @@ class SphinxQuerySet(object):
                     #elif k == 'comment':
                 #    v = '\'%s\'' % self.escape(v)
 
-                opts.append('%s=%s' % (k, v))
+                query_opts.append('%s=%s' % (k, v))
 
-        if opts:
-            return dict(_query_opts='OPTION %s' % ','.join(opts))
-        return None
+        if query_opts:
+            opts_dict['_query_opts']='OPTION %s' % ','.join(query_opts)
 
+        return opts_dict or None
+
+    def _build_snippets_string(self):
+        opts_list = []
+        for k, v in self._snippets_opts.iteritems():
+            opts_list.append("'%s' AS `%s`" % (self.escape(v), k))
+
+        if opts_list:
+            self._snippets_string = ', %s' % ', '.join(opts_list)
+
+    ## Cache
 
     def _fill_cache(self, num=None):
         fields = self.meta['fields'].copy()
@@ -418,20 +409,21 @@ class SphinxQuerySet(object):
                         for obj in qs:
                             results[ct][obj.pk]['obj'] = obj
 
-                if self._passages:
+                if self._snippets:
                     for doc in docs.values():
-                        doc['data']['passages'] = self._get_passages(doc['results']['obj'])
+                        doc['data']['snippets'] = self._get_snippets(doc['results']['obj'])
                         self._result_cache.append(SphinxProxy(doc['results']['obj'], doc['data']))
                 else:
                     for doc in docs.values():
                         self._result_cache.append(SphinxProxy(doc['results']['obj'], doc['data']))
 
 
-    def _get_passages(self, instance):
+    ## Snippets
+    def _get_snippets(self, instance):
         fields = self._get_doc_fields(instance)
 
         docs = [getattr(instance, f) for f in fields]
-        opts = self.passages if self.passages else ''
+        opts = self.snippets if self.snippets else ''
 
         doc_format = ', '.join('%s' for x in range(0, len(fields)))
         query = 'CALL SNIPPETS (({0:>s}), \'{1:>s}\', %s {2:>s})'.format(doc_format,
@@ -442,25 +434,55 @@ class SphinxQuerySet(object):
         c = self._db.cursor()
         count = c.execute(query, docs)
 
-        passages = {}
+        snippets = {}
         for field in fields:
-            passages[field] = c.fetchone()[0].decode('utf-8')
+            snippets[field] = c.fetchone()[0].decode('utf-8')
 
-        return passages
+        return snippets
 
-    def _parse_indexes(self, index):
+    def _get_doc_fields(self, instance):
+        cache = self._fields_cache.get(type(instance), None)
+        if cache is None:
+            def _get_field(name):
+                return instance._meta.get_field(name)
 
-        if index is None:
-            return list()
+            opts = instance.__sphinx_options__
+            included = opts.get('included_fields', [])
+            excluded = opts.get('excluded_fields', [])
+            stored_attrs = opts.get('stored_attributes', [])
+            stored_fields = opts.get('stored_fields', [])
+            if included:
+                included = [f for f in included if
+                            f not in excluded
+                            and
+                            get_sphinx_attr_type_for_field(_get_field(f)) == 'string']
+                for f in stored_fields:
+                    if get_sphinx_attr_type_for_field(_get_field(f)) == 'string':
+                        included.append(f)
+            else:
+                included = [f.name for f in instance._meta.fields
+                            if
+                            f.name not in excluded
+                            and
+                            (f.name not in stored_attrs
+                             or
+                             f.name in stored_fields)
+                            and
+                            get_sphinx_attr_type_for_field(f) == 'string']
 
-        return [x.lower() for x in re.split(self.__index_match, index) if x]
+            cache = self._fields_cache[type(instance)] = included
 
+        return cache
+
+    ## Documents
     def _decode_document_id(self, doc_id):
         assert isinstance(doc_id, int)
 
         ct = (doc_id & 0xFF000000) >> DOCUMENT_ID_SHIFT
         return doc_id & 0x00FFFFFF, ct
 
+
+    ## Filters
     def _process_single_obj_operation(self, obj):
         if isinstance(obj, models.Model):
             if self.model is None:
@@ -533,44 +555,34 @@ class SphinxQuerySet(object):
 
         return filters
 
-    def _get_doc_fields(self, instance):
-        cache = self._fields_cache.get(type(instance), None)
-        if cache is None:
-            def _get_field(name):
-                return instance._meta.get_field(name)
 
-            opts = instance.__sphinx_options__
-            included = opts.get('included_fields', [])
-            excluded = opts.get('excluded_fields', [])
-            stored_attrs = opts.get('stored_attributes', [])
-            stored_fields = opts.get('stored_fields', [])
-            if included:
-                included = [f for f in included if
-                            f not in excluded
-                            and
-                            get_sphinx_attr_type_for_field(_get_field(f)) == 'string']
-                for f in stored_fields:
-                    if get_sphinx_attr_type_for_field(_get_field(f)) == 'string':
-                        included.append(f)
-            else:
-                included = [f.name for f in instance._meta.fields
-                            if
-                            f.name not in excluded
-                            and
-                            (f.name not in stored_attrs
-                             or
-                             f.name in stored_fields)
-                            and
-                            get_sphinx_attr_type_for_field(f) == 'string']
-
-            cache = self._fields_cache[type(instance)] = included
-
-        return cache
-
+    ## Query
     def _build_query(self):
         self._query_args = []
 
         q = ['SELECT']
+
+        q.extend(self._build_fields())
+
+        q.extend(['FROM', ', '.join(self._indexes)])
+
+        q.extend(self._build_where())
+
+        q.append(self._build_group_by())
+        q.append(self._build_order_by())
+        q.append(self._build_group_order_by())
+
+        q.extend(self._build_limits())
+
+        if self._query_opts is not None:
+            q.append(self._query_opts)
+
+        return ' '.join(q)
+
+    query_string = property(_build_query)
+
+    def _build_fields(self):
+        q = []
         if self._fields:
             q.append(self._fields)
             if self._aliases:
@@ -578,9 +590,10 @@ class SphinxQuerySet(object):
 
         if self._aliases:
             q.append(', '.join(self._aliases.values()))
+        return q
 
-        q.extend(['FROM', ', '.join(self._indexes)])
-
+    def _build_where(self):
+        q = []
         if self._query or self._filters or self._excludes:
             q.append('WHERE')
         if self._query:
@@ -596,35 +609,40 @@ class SphinxQuerySet(object):
         if self._excludes:
             q.append(' AND '.join(self._excludes.values()))
 
-        if self._group_by:
-            q.append(self._group_by)
-        if self._order_by:
-            q.append(self._order_by)
-        if self._group_order_by:
-            q.append(self._group_order_by)
+        return q
 
-        q.append('LIMIT %i, %i' % (self._offset, self._limit))
+    def _build_group_by(self):
+        return self._group_by
 
-        if self._query_opts is not None:
-            q.append(self._query_opts)
+    def _build_order_by(self):
+        return self._order_by
 
-        self._query_string = ' '.join(q)
+    def _build_group_order_by(self):
+        return self._group_order_by
 
-        return self._query_string
+    def _build_limits(self):
+        if not self._limit and self._offset is None:
+            return ''
 
+        q = ['LIMIT']
+        if self._offset is not None:
+            q.append('%i,' % self._offset)
+        q.append('%i' % self._limit if self._limit is not None else 0)
+
+        return q
+
+    ## Clone
     def _clone(self, **kwargs):
         # Clones the queryset passing any changed args
         c = self.__class__()
         c.__dict__.update(self.__dict__.copy())
 
         c._result_cache = None
-        c._query_string = None
         c._metadata = None
         c._iter = None
 
         for k, v in kwargs.iteritems():
             setattr(c, k, v)
-            # почистим кеш в новом объекте, раз уж параметры запроса изменились
 
         return c
 
