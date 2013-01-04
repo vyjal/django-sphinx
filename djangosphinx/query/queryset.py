@@ -68,6 +68,9 @@ class SphinxQuerySet(object):
         self._excludes = {}
 
         _q_opts = kwargs.pop('query_options', SPHINX_QUERY_OPTS)
+        if 'ranker' not in _q_opts:
+            _q_opts['ranker'] = 'bm25'
+
         self._query_opts = self._format_options(**_q_opts)
 
         self._limit = kwargs.pop('limit', SPHINX_QUERY_LIMIT)
