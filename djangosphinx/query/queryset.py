@@ -20,7 +20,7 @@ from django.db.models.query import QuerySet
 from django.utils.encoding import force_unicode
 
 from djangosphinx.conf import *
-from djangosphinx.constants import SNIPPETS_OPTIONS, EMPTY_RESULT_SET, QUERY_OPTIONS, QUERY_RANKERS,\
+from djangosphinx.constants import EMPTY_RESULT_SET, \
     FILTER_CMP_OPERATIONS, FILTER_CMP_INVERSE
 
 from djangosphinx.query.proxy import SphinxProxy
@@ -28,7 +28,7 @@ from djangosphinx.query.query import SphinxQuery, conn_handler
 from djangosphinx.utils.config import get_sphinx_attr_type_for_field
 from djangosphinx.shortcuts import all_indexes
 
-__all__ = ['SearchError', 'ConnectionError', 'BaseSphinxQuerySet', 'SphinxProxy',
+__all__ = ['SearchError', 'SphinxQuerySet',
            'to_sphinx']
 
 def to_sphinx(value):
@@ -38,7 +38,6 @@ def to_sphinx(value):
    elif isinstance(value, decimal.Decimal) or isinstance(value, float):
        return float(value)
    return int(value)
-
 
 
 class SearchError(Exception):
@@ -71,7 +70,7 @@ class SphinxQuerySet(object):
         _q_opts = kwargs.pop('query_options', SPHINX_QUERY_OPTS)
         self._query_opts = self._format_options(**_q_opts)
 
-        self._limit = None
+        self._limit = kwargs.pop('limit', SPHINX_QUERY_LIMIT)
         self._offset = None
 
         self._result_cache = None
@@ -81,7 +80,7 @@ class SphinxQuerySet(object):
         self._maxmatches = kwargs.pop('maxmatches', SPHINX_MAX_MATCHES)
 
         self._snippets = kwargs.pop('snippets', SPHINX_SNIPPETS)
-        self._snippets_opts = kwargs.pop('snippets_opts', SPHINX_SNIPPETS_OPTS)
+        self._snippets_opts = kwargs.pop('snippets_options', SPHINX_SNIPPETS_OPTS)
         self._snippets_string = None
 
         if model:
@@ -93,7 +92,7 @@ class SphinxQuerySet(object):
         return self.count()
 
     def __iter__(self):
-        if self._iter is None:
+        if self._result_cache is None:
             self._get_data()
 
         return iter(self._result_cache)
@@ -322,20 +321,23 @@ class SphinxQuerySet(object):
     def _get_index(self):
         return ' '.join(self._indexes)
 
+    def _format_options_dict(self, d):
+        return '(%s)' % ', '.join(['%s=%s' % (x, d[x]) for x in d])
+
     def _format_options(self, **kwargs):
         if not kwargs:
             return ''
+        opts = []
+        for k, v in kwargs.iteritems():
+            if isinstance(v, bool):
+                v = int(v)
+            elif isinstance(v, dict):
+                v = self._format_options_dict(v)
 
-        if 'reverse_scan' in kwargs:
-            kwargs['reverse_scan'] = int(kwargs['reverse_scan'])
-        if 'field_weights' in kwargs:
-            v = kwargs['field_weights']
-            kwargs['field_weights'] = '(%s)' % ', '.join(['%s=%s' % (x, v[x]) for x in v])
-        if 'index_weights' in kwargs:
-            v = kwargs['field_weights']
-            kwargs['index_weights'] = '(%s)' % ', '.join(['%s=%s' % (x, v[x]) for x in v])
+            opts.append('%s=%s' % (k, v))
 
-        return 'OPTION %s' % ','.join(['%s=%s' % (k, v) for k, v in kwargs.iteritems()])
+        return 'OPTION %s' % ','.join(opts)
+
     ## Cache
 
     def _fill_cache(self, num=None):
@@ -397,13 +399,15 @@ class SphinxQuerySet(object):
         fields = self._get_doc_fields(instance)
 
         docs = [getattr(instance, f) for f in fields]
-        opts = self._get_snippets_string
+        opts = self._get_snippets_string()
 
         doc_format = ', '.join('%s' for x in range(0, len(fields)))
         query = 'CALL SNIPPETS (({0:>s}), \'{1:>s}\', %s {2:>s})'.format(doc_format,
             instance.__sphinx_indexes__[0],
             opts)
         docs.append(self._query)
+
+        print query
 
         c = self._db.cursor()
         count = c.execute(query, docs)
@@ -490,18 +494,21 @@ class SphinxQuerySet(object):
 
     def _process_filters(self, filters, exclude=False, **kwargs):
         for k, v in kwargs.iteritems():
-            parts = k.split('__')
+            if  len(k.split('__')) > 3:
+                raise NotImplementedError('Related model fields lookup not supported')
+
+            parts = k.rsplit('__', 1)
             parts_len = len(parts)
             field = parts[0]
             lookup = parts[-1]
 
             if parts_len == 1:  # один
-                filters[k] = '`%s` %s %s' % (field,
+                filters[field] = '`%s` %s %s' % (field,
                                              '!=' if exclude else '=',
                                              self._process_single_obj_operation(v))
             elif parts_len == 2: # один exact или список, или сравнение
                 if lookup == 'in':
-                    filters[k] = '`%s` %sIN (%s)' % (field,
+                    filters[field] = '`%s` %sIN (%s)' % (field,
                                                      'NOT ' if exclude else '',
                                                      ','.join(str(x) for x in self._process_obj_list_operation(v)))
                 elif lookup == 'range':
@@ -511,20 +518,21 @@ class SphinxQuerySet(object):
                     if exclude:
                         # not supported by sphinx. raises error!
                         warnings.warn('Exclude range not supported by SphinxQL now!')
-                        filters[k] = 'NOT `%s` BETWEEN %i AND %i' % (field, v[0], v[1])
+                        filters[field] = 'NOT `%s` BETWEEN %i AND %i' % (field, v[0], v[1])
                     else:
-                        filters[k] = '`%s` BETWEEN %i AND %i' % (field, v[0], v[1])
+                        filters[field] = '`%s` BETWEEN %i AND %i' % (field, v[0], v[1])
 
                 elif lookup in FILTER_CMP_OPERATIONS:
-                    filters[k] = '`%s` %s %s' % (field,
+                    filters[field] = '`%s` %s %s' % (field,
                                                  FILTER_CMP_INVERSE[lookup]\
                                                  if exclude\
                                                  else FILTER_CMP_OPERATIONS[lookup],
                                                  self._process_single_obj_operation(v))
-                else:
-                    raise NotImplementedError('Related object and/or field lookup "%s" not supported' % lookup)
-            else: # related
-                raise NotImplementedError('Related model fields lookup not supported')
+                else:  # stored related field
+                    filters[k] = '`%s` %s %s' % (k,
+                                             '!=' if exclude else '=',
+                                             self._process_single_obj_operation(v))
+
 
         return filters
 
@@ -600,7 +608,7 @@ class SphinxQuerySet(object):
         q = ['LIMIT']
         if self._offset is not None:
             q.append('%i,' % self._offset)
-        q.append('%i' % (self._limit if self._limit is not None else 0))
+        q.append('%i' % (self._limit if self._limit is not None else self._maxmatches))
 
         return q
 

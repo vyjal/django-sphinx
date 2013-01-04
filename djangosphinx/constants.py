@@ -41,28 +41,27 @@ EMPTY_RESULT_SET = dict(
 # Both
 
 
-
-SNIPPETS_OPTIONS = dict(# DEFAULTS
-    before_match=(str, unicode), # '<b>'
-    after_match=(str, unicode), # '</b>'
-    chunk_separator=(str, unicode), # '...'
-    limit=int, # 256
-    around=int, # 5
-    exact_phrase=bool, # False
-    single_passage=bool, # False
-    use_boundaries=bool, # False
-    weight_order=bool, # False
-    query_mode=bool, # False
-    force_all_words=bool, # False
-    limit_passages=int, # 0
-    limit_words=int, # 0
-    start_passage_id=int, # 1
-    load_files=bool, # False
-    load_files_scattered=bool, # False
-    html_strip_mode=(str, unicode), # "none" ("none", "strip", "index", "retain")
-    allow_empty=bool, # False
-    passage_boundary=(str, unicode), # N/A ("sentence", "paragraph", "zone")
-    emit_zones=bool, # False
+SNIPPETS_OPTIONS = dict(                # DEFAULTS
+    before_match=(str, unicode),        # '<b>'
+    after_match=(str, unicode),         # '</b>'
+    chunk_separator=(str, unicode),     # '...'
+    limit=int,                          # 256
+    around=int,                         # 5
+    exact_phrase=bool,                  # False
+    single_passage=bool,                # False
+    use_boundaries=bool,                # False
+    weight_order=bool,                  # False
+    query_mode=bool,                    # False
+    force_all_words=bool,               # False
+    limit_passages=int,                 # 0
+    limit_words=int,                    # 0
+    start_passage_id=int,               # 1
+    load_files=bool,                    # False
+    load_files_scattered=bool,          # False
+    html_strip_mode=(str, unicode),     # "none" ("none", "strip", "index", "retain")
+    allow_empty=bool,                   # False
+    passage_boundary=(str, unicode),    # N/A ("sentence", "paragraph", "zone")
+    emit_zones=bool,                    # False
 )
 
 FILTER_CMP_OPERATIONS = dict(gt='>', lt='<', gte='>=', lte='<=')

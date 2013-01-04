@@ -16,8 +16,11 @@ class Command(BaseCommand):
 
     output_transaction = True
 
+
     def handle(self, *args, **options):
         from djangosphinx.utils.config import generate_config_for_model, generate_sphinx_config
+
+        output = []
 
         # warn the user to remove SPHINX_API_VERSION, because we no longer pull from bundled apis
         if getattr(settings, 'SPHINX_API_VERSION', None) is not None:
@@ -41,9 +44,11 @@ class Command(BaseCommand):
 
             for index in indexes:
                 found += 1
-                print generate_config_for_model(model, index)
+                output.append(generate_config_for_model(model, index))
 
         if found == 0:
             raise CommandError("Unable to find any models in application which use standard SphinxSearch configuration.")
 
-        print generate_sphinx_config()
+        output.append(generate_sphinx_config())
+
+        print '\n'.join(output)

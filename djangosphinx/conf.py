@@ -8,9 +8,8 @@ from djangosphinx.constants import SNIPPETS_OPTIONS, QUERY_OPTIONS
 __all__ = [
     'DOCUMENT_ID_SHIFT', 'CONTENT_TYPE_MASK', 'OBJECT_ID_MASK',
     'SEARCHD_SETTINGS',
-    'SPHINX_RETRIES', 'SPHINX_RETRIES_DELAY',
     'SPHINX_MAX_MATCHES',
-    'SPHINX_QUERY_OPTS',
+    'SPHINX_QUERY_OPTS', 'SPHINX_QUERY_LIMIT',
     'SPHINX_SNIPPETS', 'SPHINX_SNIPPETS_OPTS',
 ]
 
@@ -28,10 +27,6 @@ SEARCHD_SETTINGS = {
     'sphinx_port': getattr(settings, 'SPHINX_PORT', 9306),
     'max_matches': SPHINX_MAX_MATCHES,
 }
-
-# These require search API 275 (Sphinx 0.9.8)
-SPHINX_RETRIES = int(getattr(settings, 'SPHINX_RETRIES', 0))
-SPHINX_RETRIES_DELAY = int(getattr(settings, 'SPHINX_RETRIES_DELAY', 5))
 
 SPHINX_SNIPPETS = bool(getattr(settings, 'SPHINX_SNIPPETS', False))
 
@@ -55,3 +50,7 @@ for k, v in _query_opts.iteritems():
         v = int(v)
 
     SPHINX_QUERY_OPTS[k] = v
+
+SPHINX_QUERY_LIMIT = getattr(settings, 'SPHINX_QUERY_LIMIT', 20)
+
+assert(SPHINX_QUERY_LIMIT < SPHINX_MAX_MATCHES)

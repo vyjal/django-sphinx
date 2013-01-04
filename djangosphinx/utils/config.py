@@ -260,6 +260,7 @@ def _process_mva_fields_for_model(options, model_class, content_type, indexes):
             related_target_field = related_model_class._meta.get_field(field.m2m_reverse_target_field_name())
 
             doc_id = content_type.pk if _get_database_engine() == 'mysql' else 'CAST(%i as BIGINT)' % content_type.pk
+
             query = ''.join(['SELECT %s<<%i|%s.%s, %s.%s ' % (doc_id,
                                                               DOCUMENT_ID_SHIFT,
 
@@ -295,19 +296,68 @@ def _process_related_fields(fields, options, model_class):
     local_table = model_class._meta.db_table
     related_fields = []
     related_stored_attrs = {}
+    join_tables = []
+    join_statements = []
 
     for related in related_field_names:
-        field = model_class._meta.get_field(related)
+        parts = related.split('__')
+        if len(parts) == 1:
+            field = model_class._meta.get_field(related)
 
-        if not isinstance(field, (ForeignKey, OneToOneField)):
-            raise TypeError('Related_fields list can only contain fields of ForeignKey and OneToOneField types')
+            if not isinstance(field, (ForeignKey, OneToOneField)):
+                raise TypeError('Related_fields list can only contain fields '
+                                'of ForeignKey and OneToOneField types')
 
-        related_fields.append('%s.%s as %s' % (local_table, field.column, field.name))
+            related_fields.append('%s.%s as %s' % (local_table, field.column, field.name))
 
-        related_stored_attrs.setdefault('uint', []).append(field.name)
+            related_stored_attrs.setdefault('uint', []).append(field.name)
+        elif len(parts) == 2:
+            local_field_name, related_model_field_name = parts
+
+            local_field = model_class._meta.get_field(local_field_name)
+
+            local_field_column = local_field.column
+
+            related_model = local_field.rel.to
+            related_table = related_model._meta.db_table
+            related_pk_field = local_field.rel.get_related_field()
+            related_pk_column = related_pk_field.column
+
+            related_field = related_model._meta.get_field(related_model_field_name)
+
+            if not isinstance(related_field, OneToOneField):
+                raise TypeError('Only OneToOne relations can be added to the index '
+                                'for `%s.%s`. Not `%s`.' % (model_class._meta.app_label,
+                                                            model_class._meta.module_name,
+                                                            local_field_name))
+
+            related_field_type = get_sphinx_attr_type_for_field(related_field)
+
+            related_column = related_field.column
+            #TODO: проверять существование полей и моделей!!!
+
+            if related_table not in join_tables:
+                join_tables.append(related_table)
+                join_statements.append(
+                    'INNER JOIN %s ON %s.%s=%s.%s ' % (related_table,
+                                                       local_table,
+                                                       local_field_column,
+                                                       related_table,
+                                                       related_pk_column)
+                )
+
+            related_fields.append('%s.%s as %s__%s' % (related_table,
+                                                       related_column,
+                                                       local_field_name,
+                                                       related_model_field_name))
+            if related_field_type != 'string':
+                related_stored_attrs.setdefault(related_field_type, []).append('%s__%s' % (local_field_name,
+                                                                                           related_model_field_name))
+        else:
+            raise NotImplementedError('Oops... we need to go deeper?')
 
 
-    return (related_fields, related_stored_attrs)
+    return (related_fields, related_stored_attrs, join_statements)
 
 
 def get_source_context(tables, index_name, fields, indexes, mva_fields,
@@ -319,6 +369,9 @@ def get_source_context(tables, index_name, fields, indexes, mva_fields,
         raise NotImplementedError ('Support for generating document identifier of a composite index is not yet available')
     else:
         doc_id = indexes[0]
+
+    content_type_id = document_content_type.pk if _get_database_engine() == 'mysql' \
+                                                else 'CAST(%i as BIGINT)' % document_content_type.pk
 
     context = DEFAULT_SPHINX_PARAMS
     context.update({
@@ -337,7 +390,7 @@ def get_source_context(tables, index_name, fields, indexes, mva_fields,
         'stored_string_fields': stored_string_fields,
         'stored_related_attrs': stored_related_attrs,
 
-        'document_id': '%s<<%i|%s.%s' % (document_content_type.id,
+        'document_id': '%s<<%i|%s.%s' % (content_type_id,
                                                DOCUMENT_ID_SHIFT,
                                                doc_id.model._meta.db_table,
                                                doc_id.column)
@@ -393,7 +446,7 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
     #related_stored_attrs = _process_related_attributes_for_model(options, model_class)
     join_statements = content_types = []
 
-    related_fields, related_stored_attrs = _process_related_fields(fields, options, model_class)
+    related_fields, related_stored_attrs, join_statements = _process_related_fields(fields, options, model_class)
 
     table = model_class._meta.db_table
     if index is None:
