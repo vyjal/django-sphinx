@@ -259,7 +259,8 @@ def _process_mva_fields_for_model(options, model_class, content_type, indexes):
 
             related_target_field = related_model_class._meta.get_field(field.m2m_reverse_target_field_name())
 
-            query = ''.join(['SELECT %s<<%i|%s.%s, %s.%s ' % (content_type.pk,
+            doc_id = content_type.pk if _get_database_engine() == 'mysql' else 'CAST(%i as BIGINT)' % content_type.pk
+            query = ''.join(['SELECT %s<<%i|%s.%s, %s.%s ' % (doc_id,
                                                               DOCUMENT_ID_SHIFT,
 
                                                               model_table,

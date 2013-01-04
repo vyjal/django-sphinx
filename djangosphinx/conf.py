@@ -3,17 +3,20 @@
 __author__ = 'ego'
 
 from django.conf import settings
-from djangosphinx.constants import SNIPPETS_OPTIONS
+from djangosphinx.constants import SNIPPETS_OPTIONS, QUERY_OPTIONS
 
 __all__ = [
-    'DOCUMENT_ID_SHIFT',
+    'DOCUMENT_ID_SHIFT', 'CONTENT_TYPE_MASK', 'OBJECT_ID_MASK',
     'SEARCHD_SETTINGS',
     'SPHINX_RETRIES', 'SPHINX_RETRIES_DELAY',
     'SPHINX_MAX_MATCHES',
-    'SPHINX_SNIPPETS', 'SPHINX_SNIPPETS_OPTS'
+    'SPHINX_QUERY_OPTS',
+    'SPHINX_SNIPPETS', 'SPHINX_SNIPPETS_OPTS',
 ]
 
-DOCUMENT_ID_SHIFT = 24
+DOCUMENT_ID_SHIFT = getattr(settings, 'SPHINX_DOCUMENT_ID_SHIFT', 52)
+CONTENT_TYPE_MASK = (2**(64-DOCUMENT_ID_SHIFT)-1) << DOCUMENT_ID_SHIFT  # 4095 content types
+OBJECT_ID_MASK = 2**DOCUMENT_ID_SHIFT-1  # 4503599627370495 objects for content type
 
 SPHINX_MAX_MATCHES = int(getattr(settings, 'SPHINX_MAX_MATCHES', 1000))
 
@@ -42,3 +45,13 @@ for k, v in _snip_opts.iteritems():
         v = int(v)
 
     SPHINX_SNIPPETS_OPTS[k] = v
+
+_query_opts = getattr(settings, 'SPHINX_QUERY_OPTIONS', {})
+SPHINX_QUERY_OPTS = {}
+for k, v in _query_opts.iteritems():
+    assert(isinstance(v, QUERY_OPTIONS[k]))
+
+    if isinstance(v, bool):
+        v = int(v)
+
+    SPHINX_QUERY_OPTS[k] = v

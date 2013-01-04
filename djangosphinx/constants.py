@@ -4,15 +4,17 @@ __author__ = 'ego'
 
 
 # MySQL
-QUERY_RANKERS = dict(
-    proximity_bm25='SPH_RANK_PROXIMITY_BM25',
-    bm25='SPH_RANK_BM25',
-    none='SPH_RANK_NONE',
-    wordcount='SPH_RANK_WORDCOUNT',
-    proximity='SPH_RANK_PROXIMITY',
-    matchany='SPH_RANK_MATCHANY',
-    fieldmask='SPH_RANK_FIELDMASK',
-)
+QUERY_RANKERS = [
+    'proximity_bm25',
+    'bm25',
+    'none',
+    'wordcount',
+    'proximity',
+    'matchany',
+    'fieldmask',
+    'sph04',
+    'expr',
+]
 
 QUERY_OPTIONS = dict(
     ranker=(str, unicode),
@@ -24,6 +26,7 @@ QUERY_OPTIONS = dict(
     index_weights=dict,
     reverse_scan=(int, bool),
     #comment=(str, unicode), # комменты пока оставлять нельзя.
+
 )
 
 # API

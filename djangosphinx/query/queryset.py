@@ -26,7 +26,7 @@ from djangosphinx.constants import SNIPPETS_OPTIONS, EMPTY_RESULT_SET, QUERY_OPT
 from djangosphinx.query.proxy import SphinxProxy
 from djangosphinx.query.query import SphinxQuery, conn_handler
 from djangosphinx.utils.config import get_sphinx_attr_type_for_field
-
+from djangosphinx.shortcuts import all_indexes
 
 __all__ = ['SearchError', 'ConnectionError', 'BaseSphinxQuerySet', 'SphinxProxy',
            'to_sphinx']
@@ -68,7 +68,8 @@ class SphinxQuerySet(object):
         self._filters = {}
         self._excludes = {}
 
-        self._query_opts = None
+        _q_opts = kwargs.pop('query_options', SPHINX_QUERY_OPTS)
+        self._query_opts = self._format_options(**_q_opts)
 
         self._limit = None
         self._offset = None
@@ -183,7 +184,7 @@ class SphinxQuerySet(object):
         filters = self._excludes.copy()
         return self._clone(_excludes=self._process_filters(filters, True, **kwargs))
 
-    def values(self, *args, **kwargs):
+    def fields(self, *args, **kwargs):
         fields = ''
         aliases = {}
         if args:
@@ -195,6 +196,21 @@ class SphinxQuerySet(object):
         if fields or aliases:
             return self._clone(_fields=fields, _aliases=aliases)
         return self
+
+    def options(self, **kwargs):
+        if not kwargs:
+            return self
+        return self._clone(_query_opts=self._format_options(**kwargs))
+
+    def snippets(self, snippets=True, **kwargs):
+        if snippets == self._snippets and not kwargs:
+            return self
+
+        for k, v in kwargs.iteritems():
+            if isinstance(v, bool):
+                v = int(v)
+
+        return self._clone(_snippets_opts=kwargs, _snippets=snippets, _snippets_opts_string=None)
 
     # Currently only supports grouping by a single column.
     # The column however can be a computed expression
@@ -236,8 +252,10 @@ class SphinxQuerySet(object):
     def count(self):
         return min(self.meta.get('total_found', 0), self._maxmatches)
 
+    # Возвращяет все объекты из индекса. Размер списка ограничен только
+    # значением maxmatches
     def all(self):
-       return self
+       return self._clone(_limit=self._maxmatches, _offset=None)
 
     def none(self):
        qs = EmptySphinxQuerySet()
@@ -245,9 +263,7 @@ class SphinxQuerySet(object):
        return qs
 
     def reset(self):
-           return self.__class__(self.model, self.using, index=self.index)
-
-    # !
+           return self.__class__(self.model, self.using, index=self._get_index())
 
     def get_query_set(self, model):
         qs = model._default_manager
@@ -255,29 +271,15 @@ class SphinxQuerySet(object):
             qs = qs.db_manager(self.using)
         return qs.all()
 
-    def escape(self, value):
-        return re.sub(r"([=\(\)|\-!@~\"&/\\\^\$\=])", r"\\\1", value)
-
     ## Options
-    def set_options(self, **kwargs):
-        kwargs = self._format_options(**kwargs)
-        if kwargs is not None:
-            return self._clone(**kwargs)
-        return self
 
-
-    def set_limits(self, start=None, stop=None):
+    def set_limits(self, start, stop=None):
         if start is not None:
             self._offset = int(start)
         if stop is not None:
-            self._limit = stop - start
+                self._limit = stop - start
 
     # Properties
-
-    def _get_index(self):
-        return ' '.join(self._indexes)
-
-    index = property(_get_index)
 
     def _meta(self):
         if self._metadata is None:
@@ -289,22 +291,26 @@ class SphinxQuerySet(object):
 
     def _get_snippets_string(self):
         if self._snippets_string is None:
-            self._build_snippets_string()
-        return self._snippets_string
+            opts_list = []
+            for k, v in self._snippets_opts.iteritems():
+                opts_list.append("'%s' AS `%s`" % (v, k))
 
-    snippets = property(_get_snippets_string)
+            if opts_list:
+                self._snippets_string = ', %s' % ', '.join(opts_list)
+
+        return self._snippets_string or ''
 
     #internal
 
     def _get_data(self):
-        assert(self._indexes)
+        if not self._indexes:
+            warnings.warn('Index list is not set. Using all known indices.')
+            self._indexes = self._parse_indexes(all_indexes())
 
         self._iter = SphinxQuery(self.query_string, self._query_args)
         self._result_cache = []
         self._metadata = self._iter.meta
         self._fill_cache()
-
-
 
     ## Options
     def _parse_indexes(self, index):
@@ -313,55 +319,23 @@ class SphinxQuerySet(object):
 
         return [x.lower() for x in re.split(self.__index_match, index) if x]
 
+    def _get_index(self):
+        return ' '.join(self._indexes)
+
     def _format_options(self, **kwargs):
-        opts_dict = dict()
+        if not kwargs:
+            return ''
 
-        snippets = kwargs.pop('snippets', None)
-        if snippets is not None:
-            opts_dict['_snippets'] = snippets
+        if 'reverse_scan' in kwargs:
+            kwargs['reverse_scan'] = int(kwargs['reverse_scan'])
+        if 'field_weights' in kwargs:
+            v = kwargs['field_weights']
+            kwargs['field_weights'] = '(%s)' % ', '.join(['%s=%s' % (x, v[x]) for x in v])
+        if 'index_weights' in kwargs:
+            v = kwargs['field_weights']
+            kwargs['index_weights'] = '(%s)' % ', '.join(['%s=%s' % (x, v[x]) for x in v])
 
-        snippets_opts = kwargs.pop('snippets_opts', {})
-        for k, v in snippets_opts.iteritems():
-            if k in SNIPPETS_OPTIONS:
-                assert(isinstance(v, SNIPPETS_OPTIONS[k]))
-
-                if isinstance(v, bool):
-                    v = int(v)
-
-                opts_dict.setdefault('_snippets_opts', {})[k] = v
-
-        if '_snippets_opts' in opts_dict:
-            opts_dict['_snippets_string'] = None
-
-        query_opts = []
-        for k, v in kwargs.iteritems():
-            if k in QUERY_OPTIONS:
-                assert(isinstance(v, QUERY_OPTIONS[k]))
-
-                if k == 'ranker':
-                    assert(v in QUERY_RANKERS)
-                elif k == 'reverse_scan':
-                    v = int(v) & 0x0000000001
-                elif k in ('field_weights', 'index_weights'):
-                    v = '(%s)' % ', '.join(['%s=%s' % (x, v[x]) for x in v])
-                    #elif k == 'comment':
-                #    v = '\'%s\'' % self.escape(v)
-
-                query_opts.append('%s=%s' % (k, v))
-
-        if query_opts:
-            opts_dict['_query_opts']='OPTION %s' % ','.join(query_opts)
-
-        return opts_dict or None
-
-    def _build_snippets_string(self):
-        opts_list = []
-        for k, v in self._snippets_opts.iteritems():
-            opts_list.append("'%s' AS `%s`" % (self.escape(v), k))
-
-        if opts_list:
-            self._snippets_string = ', %s' % ', '.join(opts_list)
-
+        return 'OPTION %s' % ','.join(['%s=%s' % (k, v) for k, v in kwargs.iteritems()])
     ## Cache
 
     def _fill_cache(self, num=None):
@@ -423,7 +397,7 @@ class SphinxQuerySet(object):
         fields = self._get_doc_fields(instance)
 
         docs = [getattr(instance, f) for f in fields]
-        opts = self.snippets if self.snippets else ''
+        opts = self._get_snippets_string
 
         doc_format = ', '.join('%s' for x in range(0, len(fields)))
         query = 'CALL SNIPPETS (({0:>s}), \'{1:>s}\', %s {2:>s})'.format(doc_format,
@@ -476,10 +450,10 @@ class SphinxQuerySet(object):
 
     ## Documents
     def _decode_document_id(self, doc_id):
-        assert isinstance(doc_id, int)
+        assert isinstance(doc_id, (int, long))
 
-        ct = (doc_id & 0xFF000000) >> DOCUMENT_ID_SHIFT
-        return doc_id & 0x00FFFFFF, ct
+        ct = (doc_id & CONTENT_TYPE_MASK) >> DOCUMENT_ID_SHIFT
+        return doc_id & OBJECT_ID_MASK, ct
 
 
     ## Filters
@@ -522,7 +496,6 @@ class SphinxQuerySet(object):
             lookup = parts[-1]
 
             if parts_len == 1:  # один
-                #v = self._process_single_obj_operation(parts[0], v)
                 filters[k] = '`%s` %s %s' % (field,
                                              '!=' if exclude else '=',
                                              self._process_single_obj_operation(v))
@@ -621,13 +594,13 @@ class SphinxQuerySet(object):
         return self._group_order_by
 
     def _build_limits(self):
-        if not self._limit and self._offset is None:
+        if not self._limit is None and self._offset is None:
             return ''
 
         q = ['LIMIT']
         if self._offset is not None:
             q.append('%i,' % self._offset)
-        q.append('%i' % self._limit if self._limit is not None else 0)
+        q.append('%i' % (self._limit if self._limit is not None else 0))
 
         return q
 
