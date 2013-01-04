@@ -7,9 +7,6 @@
 *В данный момент нет пакетов, доступных для установки. Используйте Git, чтобы скачать актуальную версию пакета.*
 **Note**: для пользователей Gentoo есть ebuild: https://github.com/Yuego/overlay/tree/master/dev-python/django-sphinx
 
-*SphinxAPI не входит в состав данного пакета. Пожалуйста используйте `sphinxapi.py` из архива соответствующей версии sphinx. Необходимо в Вашем Python Path создать пакет с именем `sphinxapi`, в который поместить `sphinxapi.py`.*
-**Note**: для пользователей Gentoo так же есть ebuild: https://github.com/Yuego/overlay/tree/master/dev-python/sphinx-api
-
 Настройка
 ---------
 
