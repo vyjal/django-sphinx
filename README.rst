@@ -7,9 +7,6 @@
 *В данный момент нет пакетов, доступных для установки. Используйте Git, чтобы скачать актуальную версию пакета.*
 **Note**: для пользователей Gentoo есть ebuild: https://github.com/Yuego/overlay/tree/master/dev-python/django-sphinx
 
-*SphinxAPI не входит в состав данного пакета. Пожалуйста используйте `sphinxapi.py` из архива соответствующей версии sphinx. Необходимо в Вашем Python Path создать пакет с именем `sphinxapi`, в который поместить `sphinxapi.py`.*
-**Note**: для пользователей Gentoo так же есть ebuild: https://github.com/Yuego/overlay/tree/master/dev-python/sphinx-api
-
 Настройка
 ---------
 
@@ -20,74 +17,86 @@
 
 Путь к каталогу с логами Sphinx.
 
-тип: string
-по-умолчанию: '/var/log/sphinx/'
+*тип: string
+*по-умолчанию: '/var/log/sphinx/'
 
 *SPHINX_DATA_PATH*
 
 Путь к каталогу, где Sphinx будет хранить индексы
 
-тип: string
-по-умолчанию: '/var/data/'
+- тип: string
+- по-умолчанию: '/var/data/
 
 *SPHINX_PID_FILE*
 
-тип: string
-по-умолчанию: '/var/run/searchd.pid'
+- тип: string
+- по-умолчанию: '/var/run/searchd.pid'
 
 *SPHINX_HOST*
 
-тип: string
-по-умолчанию: '127.0.0.1'
+- тип: string
+- по-умолчанию: '127.0.0.1'
 поддерживаются так-же unx-сокеты
 
 *SPHINX_PORT*
 
-тип: int
-по-умолчанию: 9312
-
-*SPHINX_RETRIES*
-
-тип: int
-по-умолчанию: 0
-
-*SPHINX_RETRIES_DELAY*
-
-тип: int
-по-умолчанию: 5
-
-*SPHINX_MATCH_MODE*
-
-см.
-
-тип: int
-по-умолчанию: SPH_MATCH_ALL
-
-*SPHINX_RANK_MODE*
-
-см.
-
-тип: int
-по-умолчанию: SPH_RANK_PROXIMITY_BM25, если поддерживатеся Sphinx, иначе SPH_RANK_NONE
+- тип: int
+- по-умолчанию: 9306
 
 *SPHINX_MAX_MATCHES*
 
 Максимальное количество документов, которое сможет держать в оперативной памяти Sphinx. А так же максимальное количество возвращаемых результатов поиска.
 
-тип: int
-по-умолчанию: 1000
+- тип: int
+- по-умолчанию: 1000
 
-*SPHINX_PASSAGES*
+* Может быть переопределено в модели. Параметр: `maxmatches`. См ниже.
+
+*SPHINX_SNIPPETS*
 
 Создавать сниппеты для всех моделей по-умолчанию или нет. Применяется ко всем моделям глобально. Может быть переопределено для каждой модели в индивидуальном порядке.
 
-тип: boolean
-по-умолчанию: False
+- тип: boolean
+- по-умолчанию: False
+
+* Может быть переопределено в модели (параметр `snippets`) или вызовом метода (метод `snippets`). См. ниже.
+
+*SPHINX_SNIPPETS_OPTS*
+
+Параметры выделения сниппетов в тексте.
+
+- тип: dict
+- по-умолчанию: dict()
+
+* Если не указано или пусто, используются параметры по-умолчанию самого Sphinx.
+* Доступные для конфигурирования параметры и их значения по-умолчанию см. в документации Sphinx: http://sphinxsearch.com/docs/2.0.4/api-func-buildexcerpts.html
+* Может быть переопределено в модели (параметр `snippets_options`) или вызовом метода (`snippets`). см. ниже
+
+*SPHINX_QUERY_OPTIONS*
+
+Параметры запросов к индексу Sphinx.
+
+- тип: dict
+- по-умолчанию: dict(ranker='bm25')
+
+* Если не указано или пусто, используются параметры по-умолчанию самого Sphinx.
+* Доступные для конфигурирования параметры и их значения по-умолчанию см. документацию Sphinx: http://sphinxsearch.com/docs/2.0.4/sphinxql-select.html
+* Может быть переопределено в модели (параметр `query_options`) или вызовом метода (`options`). см. ниже
+
+*SPHINX_QUERY_LIMIT*
+
+Лимит количества результатов поиска по-умолчанию.
+
+- тип: int
+- по-умолчанию: 20
+
+* Может быть переопределено в модели (параметр `limit`) или вызовом метода (`set_limits`). см. ниже
+
 
 Настройка моделей
 =================
 
-**Note**: для каждой модели можно указать только одино поле типа SphinxSearch!::
+**Note**: для каждой модели можно указать только одно поле типа SphinxSearch!::
 
     # Пример настройки и использования:
 
@@ -97,13 +106,16 @@
     class RelatedModel(models.Model)
         name = models.CharField(max_length = 100)
 
+    class City(models.Model)
+        title = models.CharField(max_length = 100)
+
     class M2MModel(models.Model)
         name = models.CharField(max_length = 100)
 
     class MyModel(models.Model):
 
         related_field = models.ForeignKey(RelatedModel)
-        related_field2 = models.OneToOneField(RelatedModel)
+        city = models.OneToOneField(City)
         m2m_field = models.ManyToManyField(M2MModel)
 
         name = models.CharField(max_length=10)
@@ -138,29 +150,32 @@
 
         # выбор полей для индексации
         my_search = SphinxSearch(
-            'included_fields': [
-                'text',
-                'bool',
-                'uint',
-            ],
-            'excluded_fields': [
-                'excluded_field2',
-            ],
-            'stored_attributes': [
-                'stored_string',
-                'datetime',
-            ],
-            'stored_fields': [
-                'stored_string2',
-            ]
-            'related_fields': [
-                'related_field',
-                'related_field2',
+            options = {
+                'included_fields': [
+                    'text',
+                    'bool',
+                    'uint',
+                ],
+                'excluded_fields': [
+                    'excluded_field2',
+                ],
+                'stored_attributes': [
+                    'stored_string',
+                    'datetime',
+                ],
+                'stored_fields': [
+                    'stored_string2',
+                ]
+                'related_fields': [
+                    'related_field',
+                    'related_field2',
 
-            ],
-            'mva_fields': {
-                'm2m_field',
-            },
+                    'city__title',
+                ],
+                'mva_fields': {
+                    'm2m_field',
+                },
+            }
         )
 
 
@@ -190,6 +205,11 @@
 Список полей, связанных с другими моделями. Должен содержать только отношения один-к-одному (OneToOneField) и один-ко-многим (ForeignKey)
 В индекс помещаются ключи соответствующих объектов связанных моделей в виде stored-атрибутов.
 По этим объектам можно фильтровать выборку (см. примеры ниже)
+
+Кроме того, если данные разбиты на несколько таблиц, связанных отношением один-к-одному, можно поместить в индекс так же поля связанной таблицы. Для этого нужно добавить список полей по принципу, аналогичному тому, что используется в Django ORM:
+
+*Пример*
+Если в модели имеется поле city, связанное с моделью City и необходимо поместить в индекс название города (поле title), то в список нужно добавить строку 'city__title'.
 
 **mva_fields**      # см. http://sphinxsearch.com/docs/2.0.4/conf-sql-attr-multi.html
 
@@ -247,13 +267,140 @@
     results15 = queryset.filter(m2m_field__in=m2m_item)
 
 
-    # as of 2.0 you can now access an attribute to get the weight and similar arguments
-    for result in results1:
-        print result, result._sphinx
-    # you can also access a similar set of meta data on the queryset itself (once it's been sliced or executed in any way)
-    print results1._sphinx
 
-    # as of 3.0 you can specify 'options', which are described in detail below.
+Методы класса SphinxQuerySet
+============================
+*Note*: все перечисленные методы возвращают объект и позволяют создавать цепочки: qs = SphinxQuerySet().query('query').group_by('field')
+
+
+**__init__**
+
+Принимает 2 необязательных позиционных параметра и несколько словарных:
+
+*model* - ссылка на класс модели, для которой создан индекс
+
+*Если не указана и не указан параметр `index` (см. ниже), поиск осуществляется по всем существующим индексам.
+
+*using* - имя БД (см. документацию к Djano ORM: https://docs.djangoproject.com/en/dev/topics/db/multi-db/)
+
+*query_options* - см. `SPHINX_QUERY_OPTIONS` выше.
+
+*limit* - см. `SPHINX_QUERY_LIMIT` выше.
+
+*maxmatches* - см. `SPHINX_MAX_MATCHES` выше.
+
+*snippets* - см. `SPHINX_SNIPPETS` выше.
+
+*snippets_options* - см. `SPHINX_SNIPPETS_OPTS` выше.
+
+*index* - список индексов, по которым будет осуществляться поиск.
+
+*В названии индекса допустимы символы: [a-z0-9_-]. Все остальные будут считаться разделителями списка.
+
+**add_index**
+
+Принимает единственный аргумент - список индексов. Аналогично `index` в `__init__`.
+Добавляет индексы в список.
+
+**remove_index**
+
+Аналогично `add_index`. Удаляет переданные индексы из списка.
+
+**query**
+
+Принимает строку - поисковый запрос.
+
+**filter**
+
+Аналогичен методу `filter` Django ORM.
+Досупны операции: `gt`, `gte`, `lt`, `lte`, `in`, `range` и `=`::
+
+    qs = qs.filter(field=value)
+    qs = qs.filter(field__gt=value)
+
+
+**exclude**
+
+Аналогичен `filter`, но исключает указанные значения из выборки.
+Поддерживает те же операции, за исключением `range` (SphinxQL не поддерживает NOT field BETWEEN val1 AND val2)
+
+**fields**
+
+По умолчанию Sphinx возвращает все поля индекса.
+Данный метод принимает имена полей, которые должны быть получены. Значения в дальнейшем можно получить через атрибут `sphinx` объекта.
+
+Кроме того можно создавать вычисляемые выражения (см. http://sphinxsearch.com/docs/2.0.6/sphinxql-select.html)
+Для этого необходимо передать методу именованные параметры, где имя параметра - alias выражения, а значение - строка с выражением::
+
+    qs = qs.fields(expr1='group_id*123+456')
+
+*Note*: по-умолчанию поле `weight` теперь не возвращается. Чтобы его получить, нужно явно "попросить об этом" Sphinx::
+
+    qs = qs.fields(weight='WEIGHT()')
+
+**options**
+
+Позволяет задать новые `SPHINX_QUERY_OPTIONS` путём передачи их в качестве именованных параметров данному методу.
+
+**snippets**
+
+Принимает один необязательный позиционный атрибут и несколько словарных
+
+*snippets* - булев параметр. Включает или отключает создание сниппетов. (если метод вызван без параметров, создание снипеетов будет включено)
+
+Именованные параметры см выше `SPHINX_SNIPPETS_OPTS`
+
+**group_by**
+
+Принимает один параметр - имя поля, по которому нужно группировать результаты поиска (в данный момент SpinxQL 2.0.4 не позволяет группировать более чем по одному полю)
+
+**order_by**
+
+Принимает названия полей, по которым выборка должна быть отсортирована. Аналогично одноимённому методу Django ORM.
+
+**group_order_by**
+
+Специфический для SphinxQL метод, позволяющий сортировать результаты внутри группы. Аналогично `order_by` принимает список полей.
+
+**all**
+
+Устанавливает лимит выдачи максимально возможным (см. `SPHINX_MAX_MATCHES`)
+
+**none**
+
+Возвращяет пустой QuerySet
+
+**reset**
+
+Сбрасывает все параметры к значениям по-умолчанию (или установленным в конфигурации)
+
+**limit**
+
+Устанавливает ограничения на выборку.
+Принимает 2 позиционных параметра
+
+*start* - смещение (сколько документов пропустить)
+*stop* - номер последнего документа
+
+Метод действует аналогично slice в python. Не путайте с limit и offset в SQL::
+
+    qs.set_limits(100,200) == qs[100:200]
+
+*Note*: метод не возвращает никаких значений. Пользоваться им не рекомендуется - используйте сиктаксис slice.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 Some additional methods:

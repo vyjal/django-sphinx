@@ -1,13 +1,14 @@
-from djangosphinx.models import SphinxQuerySet
+# coding: utf-8
+
 from django.db import models
 import itertools
 
-__all__ = ('sphinx_query',)
+__all__ = ['all_indexes', 'sphinx_query']
 
 _all_sphinx_indexes_cache = None
 
 
-def _all_indexes():
+def all_indexes():
     global _all_sphinx_indexes_cache
     if _all_sphinx_indexes_cache is None:
         indexes = []
@@ -20,8 +21,3 @@ def _all_indexes():
                 indexes.extend(index)
         _all_sphinx_indexes_cache = ' '.join(indexes)
     return _all_sphinx_indexes_cache
-
-
-def sphinx_query(query):
-    qs = SphinxQuerySet(index=_all_indexes())
-    return qs.query(query)

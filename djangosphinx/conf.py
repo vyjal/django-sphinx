@@ -3,19 +3,19 @@
 __author__ = 'ego'
 
 from django.conf import settings
-
-from sphinxapi import sphinxapi
+from djangosphinx.constants import SNIPPETS_OPTIONS, QUERY_OPTIONS
 
 __all__ = [
-    'DOCUMENT_ID_SHIFT',
+    'DOCUMENT_ID_SHIFT', 'CONTENT_TYPE_MASK', 'OBJECT_ID_MASK',
     'SEARCHD_SETTINGS',
-    'SPHINX_RETRIES', 'SPHINX_RETRIES_DELAY',
-    'SPHINX_MATCH_MODE', 'SPHINX_MAX_MATCHES',
-    'SPHINX_RANK_MODE',
-    'SPHINX_PASSAGES'
+    'SPHINX_MAX_MATCHES',
+    'SPHINX_QUERY_OPTS', 'SPHINX_QUERY_LIMIT',
+    'SPHINX_SNIPPETS', 'SPHINX_SNIPPETS_OPTS',
 ]
 
-DOCUMENT_ID_SHIFT = 24
+DOCUMENT_ID_SHIFT = getattr(settings, 'SPHINX_DOCUMENT_ID_SHIFT', 52)
+CONTENT_TYPE_MASK = (2**(64-DOCUMENT_ID_SHIFT)-1) << DOCUMENT_ID_SHIFT  # 4095 content types
+OBJECT_ID_MASK = 2**DOCUMENT_ID_SHIFT-1  # 4503599627370495 objects for content type
 
 SPHINX_MAX_MATCHES = int(getattr(settings, 'SPHINX_MAX_MATCHES', 1000))
 
@@ -24,19 +24,33 @@ SEARCHD_SETTINGS = {
     'data_path': getattr(settings, 'SPHINX_DATA_PATH', '/var/data/').rstrip('/'),
     'pid_file': getattr(settings, 'SPHINX_PID_FILE', '/var/run/searchd.pid'),
     'sphinx_host': getattr(settings, 'SPHINX_HOST', '127.0.0.1'),
-    'sphinx_port': getattr(settings, 'SPHINX_PORT', 9312),
-    'sphinx_api_version': getattr(sphinxapi, 'VER_COMMAND_SEARCH', 0x113),
+    'sphinx_port': getattr(settings, 'SPHINX_PORT', 9306),
     'max_matches': SPHINX_MAX_MATCHES,
 }
 
-# These require search API 275 (Sphinx 0.9.8)
-SPHINX_RETRIES = int(getattr(settings, 'SPHINX_RETRIES', 0))
-SPHINX_RETRIES_DELAY = int(getattr(settings, 'SPHINX_RETRIES_DELAY', 5))
+SPHINX_SNIPPETS = bool(getattr(settings, 'SPHINX_SNIPPETS', False))
 
-_mode = getattr(settings, 'SPHINX_MATCH_MODE', 'SPH_MATCH_ALL')
-SPHINX_MATCH_MODE = getattr(sphinxapi, _mode)
+_snip_opts = getattr(settings, 'SPHINX_SNIPPETS_OPTIONS', {})
 
-_rank_mode = getattr(settings, 'SPHINX_RANK_MODE', 'SPH_RANK_NONE')
-SPHINX_RANK_MODE = getattr(sphinxapi, _rank_mode)
+SPHINX_SNIPPETS_OPTS = {}
+for k, v in _snip_opts.iteritems():
+    assert(isinstance(v, SNIPPETS_OPTIONS[k]))
 
-SPHINX_PASSAGES = bool(getattr(settings, 'SPHINX_PASSAGES', False))
+    if isinstance(v, bool):
+        v = int(v)
+
+    SPHINX_SNIPPETS_OPTS[k] = v
+
+_query_opts = getattr(settings, 'SPHINX_QUERY_OPTIONS', {})
+SPHINX_QUERY_OPTS = {}
+for k, v in _query_opts.iteritems():
+    assert(isinstance(v, QUERY_OPTIONS[k]))
+
+    if isinstance(v, bool):
+        v = int(v)
+
+    SPHINX_QUERY_OPTS[k] = v
+
+SPHINX_QUERY_LIMIT = getattr(settings, 'SPHINX_QUERY_LIMIT', 20)
+
+assert(SPHINX_QUERY_LIMIT < SPHINX_MAX_MATCHES)
