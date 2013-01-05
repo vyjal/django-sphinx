@@ -5,7 +5,11 @@ __author__ = 'ego'
 import re
 import time
 import warnings
-from collections import OrderedDict
+try:
+    from collections import OrderedDict
+except ImportError:
+    from django.utils.datastructures import SortedDict as OrderedDict # Python < 2.7
+
 from datetime import datetime, date
 
 try:
