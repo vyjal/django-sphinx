@@ -5,6 +5,7 @@ __author__ = 'ego'
 import re
 import time
 import warnings
+
 try:
     from collections import OrderedDict
 except ImportError:
@@ -19,11 +20,14 @@ except ImportError:
 
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
+from django.db.models.fields.related import RelatedField
 from django.db.models.query import QuerySet
-
 from django.utils.encoding import force_unicode
 
-from djangosphinx.conf import *
+from djangosphinx.conf import SPHINX_QUERY_OPTS, SPHINX_QUERY_LIMIT, \
+    SPHINX_MAX_MATCHES, SPHINX_SNIPPETS, SPHINX_SNIPPETS_OPTS, \
+    DOCUMENT_ID_SHIFT, CONTENT_TYPE_MASK, OBJECT_ID_MASK
+
 from djangosphinx.constants import EMPTY_RESULT_SET, \
     FILTER_CMP_OPERATIONS, FILTER_CMP_INVERSE
 
@@ -54,6 +58,8 @@ class SphinxQuerySet(object):
     def __init__(self, model=None, using=None, **kwargs):
         self.model = model
         self.using = using
+        self.realtime = None
+        self._doc_ids = None
         self._db = conn_handler.connection
 
         self._iter = None
@@ -81,7 +87,8 @@ class SphinxQuerySet(object):
         self._offset = None
 
         self._result_cache = None
-        self._fields_cache = {}
+        self._doc_fields_cache = {}
+        self._index_fields_cache = None
         self._metadata = None
 
         self._maxmatches = kwargs.pop('maxmatches', SPHINX_MAX_MATCHES)
@@ -91,7 +98,12 @@ class SphinxQuerySet(object):
         self._snippets_string = None
 
         if model:
-            self._indexes = self._parse_indexes(kwargs.pop('index', model._meta.db_table))
+            #self._indexes = self._parse_indexes(kwargs.pop('index', model._meta.db_table))
+            self._indexes = [model._meta.db_table]
+            model_options = model.__sphinx_options__
+            if model_options.get('realtime', False):
+                self.realtime = '%s_rt' % model._meta.db_table
+                self._indexes.append(self.realtime)
         else:
             self._indexes = self._parse_indexes(kwargs.pop('index', None))
 
@@ -145,13 +157,13 @@ class SphinxQuerySet(object):
                 stop = int(k.stop)
             else:
                 stop = None
-            qs.set_limits(start, stop)
+            qs._set_limits(start, stop)
             qs._fill_cache()
             return k.step and list(qs)[::k.step] or qs
 
         try:
             qs = self._clone()
-            qs.set_limits(k, k + 1)
+            qs._set_limits(k, k + 1)
             qs._fill_cache()
             return list(qs)[0]
         except Exception, e:
@@ -160,6 +172,9 @@ class SphinxQuerySet(object):
     # Indexes
 
     def add_index(self, index):
+        if self.model is not None:
+            raise SearchError('You can not add an index to the model')
+
         _indexes = self._indexes[:]
 
         for x in self._parse_indexes(index):
@@ -169,6 +184,9 @@ class SphinxQuerySet(object):
         return self._clone(_indexes=_indexes)
 
     def remove_index(self, index):
+        if self.model is not None:
+            raise SearchError('You can not remove an index from model')
+
         _indexes = self._indexes[:]
 
         for x in self._parse_indexes(index):
@@ -271,19 +289,140 @@ class SphinxQuerySet(object):
     def reset(self):
            return self.__class__(self.model, self.using, index=self._get_index())
 
+
+    def _get_values_for_update(self, obj):
+        fields = self._get_index_fields()
+        values = []
+        for field in fields[:]:
+            if field == 'id':
+                f = getattr(obj, 'pk')
+                f = self._encode_document_id(f)
+            else:
+                f = getattr(obj, field)
+
+                if hasattr(f, 'through'): # ManyToMany
+                    # пропускаем пока что...
+                    f = [force_unicode(x.pk) for x in f.all()]
+                elif isinstance(f, (str, unicode)):
+                    pass
+                elif isinstance(f, (int, long, bool, date, datetime, float, decimal.Decimal)):
+                    f = to_sphinx(f)
+                else:
+                    model_filed = obj._meta.get_field(field)
+                    if isinstance(model_filed, RelatedField):
+                        f = to_sphinx(getattr(obj, model_filed.column))
+                    else:
+                        raise SearchError('Unknown field `%s`' % type(f))
+
+            values.append(f)
+
+        return values
+
+    def create(self, *args, **kwargs):
+        values = ()
+
+        if self.model:
+            assert len(args) == 1, \
+                    'Model RT-index can be updated by object instance or queryset'
+            obj = args[0]
+            if isinstance(obj, self.model):
+                # один объект, один документ
+                values = (self._get_values_for_update(obj),)
+            elif isinstance(obj, QuerySet):
+                # несколько объектов, несколько документов
+                values = map(self._get_values_for_update, obj)
+            else:
+                raise SearchError('Can`t `%s` not an instance/queryset of `%s`' % (obj, self.model))
+        else:
+            raise NotImplementedError('Non-model RT-index update not supported yet')
+
+        if not values:
+            raise SearchError('Empty QuerySet? o_O')
+
+        query = ['REPLACE' if kwargs.pop('force_update', False) else 'INSERT']
+        query.append('INTO %s' % self.realtime)
+        query.append('(%s)' % ','.join(self._get_index_fields()))
+        query.append('VALUES')
+
+        query_args = []
+        q = []
+        for v in values:
+            f_list = []
+            for f in v:
+                if isinstance(f, (str, unicode)):
+                    query_args.append(f)
+                    f_list.append('%s')
+                elif isinstance(f, (list, tuple)):
+                    f_list.append('(%s)' % ','.join(f))
+                else:
+                    f_list.append(force_unicode(f))
+
+            q.append('(%s)' % ','.join(f_list))
+
+        query.append(', '.join(q))
+
+        #print query
+        #print query_args
+
+        cursor = self._db.cursor()
+        count = cursor.execute(' '.join(query), query_args)
+
+        return count
+
+    def update(self, **kwargs):
+        raise NotImplementedError('Update not implemented yet')
+
+    def delete(self):
+        """
+        Удаляет из индекса документы, удовлетворяющие условиям filter
+        """
+
+        assert self._can_modify(),\
+                "Cannot use 'limit' or 'offset' with delete."
+
+        q = ['DELETE FROM %s WHERE' % self.realtime]
+
+        if len(self._doc_ids) == 1:
+            where = 'id = %i' % self._doc_ids[0]
+        else:
+            where = 'id IN (%s)' % ','.join(str(id) for id in self._doc_ids)
+
+        q.append(where)
+
+        query = ' '.join(q)
+
+        cursor = self._db.cursor()
+        cursor.execute(query, self._query_args)
+
+    # misc
+    def keywords(self, text, index=None, hits=None):
+        """\
+        Возвращает генератор со списком ключевых слов
+        для переданного текста\
+        """
+        if index is None:
+            # пока только для одного индекса
+            index = self._indexes[0]
+
+        query = 'CALL KEYWORDS (%s)'
+        q = ['%s', '%s']
+        if hits is not None and hits:
+            q.append('1')
+
+        query = query % ', '.join(q)
+
+        cursor = self._db.cursor()
+        count = cursor.execute(query, [text, index])
+
+        for x in range(0, count):
+            yield cursor.fetchone()
+
+
     def get_query_set(self, model):
         qs = model._default_manager
         if self.using is not None:
             qs = qs.db_manager(self.using)
         return qs.all()
-
-    ## Options
-
-    def set_limits(self, start, stop=None):
-        if start is not None:
-            self._offset = int(start)
-        if stop is not None:
-                self._limit = stop - start
 
     # Properties
 
@@ -299,7 +438,7 @@ class SphinxQuerySet(object):
         if self._snippets_string is None:
             opts_list = []
             for k, v in self._snippets_opts.iteritems():
-                opts_list.append("'%s' AS `%s`" % (v, k))
+                opts_list.append("%s AS %s" % (v, k))
 
             if opts_list:
                 self._snippets_string = ', %s' % ', '.join(opts_list)
@@ -307,6 +446,24 @@ class SphinxQuerySet(object):
         return self._snippets_string or ''
 
     #internal
+
+
+    def _set_limits(self, start, stop=None):
+        if start is not None:
+            self._offset = int(start)
+        if stop is not None:
+            self._limit = stop - start
+
+    def _can_modify(self):
+        if self.realtime is None:
+            raise SearchError('Documents can`t be modified on the non-realtime index')
+
+        assert self._doc_ids is not None \
+               and not self._excludes and self._query is None\
+               and len(self._filters) == 1 and 'id' in self._filters, \
+                'Only {id = value | id IN (val1 [, val2 [, ...]])} filters allowed here'
+
+        return self._offset is None
 
     def _get_data(self):
         if not self._indexes:
@@ -372,6 +529,11 @@ class SphinxQuerySet(object):
                         docs[doc_id]['data'].setdefault('fields', {})[field] = doc[fields[field]]
             except StopIteration:
                 self._iter = None
+                if not docs:
+                    self._result_cache = []
+                    return
+
+                #print docs, results
 
                 if self.model is None and len(self._indexes) == 1 and ct is not None:
                     self.model = ContentType.objects.get(pk=ct).model_class()
@@ -414,7 +576,7 @@ class SphinxQuerySet(object):
             opts)
         docs.append(self._query)
 
-        print query
+        #print query
 
         c = self._db.cursor()
         count = c.execute(query, docs)
@@ -426,7 +588,7 @@ class SphinxQuerySet(object):
         return snippets
 
     def _get_doc_fields(self, instance):
-        cache = self._fields_cache.get(type(instance), None)
+        cache = self._doc_fields_cache.get(type(instance), None)
         if cache is None:
             def _get_field(name):
                 return instance._meta.get_field(name)
@@ -455,9 +617,33 @@ class SphinxQuerySet(object):
                             and
                             get_sphinx_attr_type_for_field(f) == 'string']
 
-            cache = self._fields_cache[type(instance)] = included
+            cache = self._doc_fields_cache[type(instance)] = included
 
         return cache
+
+    def _get_index_fields(self):
+        if self._index_fields_cache is None:
+            def _get_field(name):
+                return self.model._meta.get_field(name)
+
+            opts = self.model.__sphinx_options__
+
+            excluded = opts.get('excluded_fields', [])
+
+
+            fields = []
+            for f in ['included_fields', 'stored_attributes',
+                      'stored_fields', 'related_fields', 'mva_fields']:
+                fields.extend(opts.get(f, []))
+            for f in excluded:
+                if f in fields:
+                    fields.pop(fields.index(f))
+
+            fields.insert(0, 'id')
+
+            self._index_fields_cache = fields
+
+        return self._index_fields_cache
 
     ## Documents
     def _decode_document_id(self, doc_id):
@@ -465,6 +651,14 @@ class SphinxQuerySet(object):
 
         ct = (doc_id & CONTENT_TYPE_MASK) >> DOCUMENT_ID_SHIFT
         return doc_id & OBJECT_ID_MASK, ct
+
+    def _encode_document_id(self, id):
+        if self.model:
+            ct = ContentType.objects.get_for_model(self.model)
+
+            id = long(ct.id) << DOCUMENT_ID_SHIFT | id
+
+        return id
 
 
     ## Filters
@@ -509,15 +703,30 @@ class SphinxQuerySet(object):
             field = parts[0]
             lookup = parts[-1]
 
+            if field == 'pk': # приводим pk к id
+                field = 'id'
+
             if parts_len == 1:  # один
-                filters[field] = '`%s` %s %s' % (field,
+                if field == 'id':
+                    v = self._encode_document_id(self._process_single_obj_operation(v))
+                    self._doc_ids = [v]
+                else:
+                    v = self._process_single_obj_operation(v)
+
+                filters[field] = '%s %s %s' % (field,
                                              '!=' if exclude else '=',
-                                             self._process_single_obj_operation(v))
+                                             v)
             elif parts_len == 2: # один exact или список, или сравнение
                 if lookup == 'in':
-                    filters[field] = '`%s` %sIN (%s)' % (field,
+                    if field == 'id':
+                        v = map(self._encode_document_id, self._process_obj_list_operation(v))
+                        self._doc_ids = v
+                    else:
+                        v = self._process_obj_list_operation(v)
+
+                    filters[field] = '%s %sIN (%s)' % (field,
                                                      'NOT ' if exclude else '',
-                                                     ','.join(str(x) for x in self._process_obj_list_operation(v)))
+                                                     ','.join(str(x) for x in v))
                 elif lookup == 'range':
                     v = self._process_obj_list_operation(v)
                     if len(v) != 2:
@@ -525,18 +734,18 @@ class SphinxQuerySet(object):
                     if exclude:
                         # not supported by sphinx. raises error!
                         warnings.warn('Exclude range not supported by SphinxQL now!')
-                        filters[field] = 'NOT `%s` BETWEEN %i AND %i' % (field, v[0], v[1])
+                        filters[field] = 'NOT %s BETWEEN %i AND %i' % (field, v[0], v[1])
                     else:
-                        filters[field] = '`%s` BETWEEN %i AND %i' % (field, v[0], v[1])
+                        filters[field] = '%s BETWEEN %i AND %i' % (field, v[0], v[1])
 
                 elif lookup in FILTER_CMP_OPERATIONS:
-                    filters[field] = '`%s` %s %s' % (field,
+                    filters[field] = '%s %s %s' % (field,
                                                  FILTER_CMP_INVERSE[lookup]\
                                                  if exclude\
                                                  else FILTER_CMP_OPERATIONS[lookup],
                                                  self._process_single_obj_operation(v))
                 else:  # stored related field
-                    filters[k] = '`%s` %s %s' % (k,
+                    filters[k] = '%s %s %s' % (k,
                                              '!=' if exclude else '=',
                                              self._process_single_obj_operation(v))
 

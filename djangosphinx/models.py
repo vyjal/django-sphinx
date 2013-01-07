@@ -2,6 +2,11 @@
 
 import warnings
 
+from django.contrib.contenttypes.models import ContentType
+from django.contrib.contenttypes import generic
+from django.db import models
+
+
 from djangosphinx.query import SphinxQuerySet
 
 
@@ -28,6 +33,15 @@ class SphinxModelManager(object):
 
     def query(self, *args, **kwargs):
         return self._get_query_set().query(*args, **kwargs)
+
+    def create(self, *args, **kwargs):
+        return self._get_query_set().create(*args, **kwargs)
+
+    def update(self, **kwargs):
+        return self._get_query_set().update(**kwargs)
+
+    def delete(self):
+        return self._get_query_set().delete()
 
 
 class SphinxSearch(object):
@@ -68,3 +82,8 @@ class SphinxSearch(object):
         setattr(model, name, self._sphinx)
 
 
+class Delta(models.Model):
+
+    max_doc_id = models.PositiveIntegerField(db_index=True, default=0)
+
+    content_type = models.OneToOneField(ContentType)

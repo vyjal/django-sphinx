@@ -38,8 +38,8 @@ class Search(models.Model):
     m2m = models.ManyToManyField(M2M)
 
     search = SphinxSearch(
-        index='test_index',
         options={
+            'realtime': True,
             'included_fields': [
                 'text',
 
@@ -63,7 +63,7 @@ class Search(models.Model):
                 'm2m',
             ]
         },
-        passages=True,
+        snippets=True,
     )
 
     def __unicode__(self):
