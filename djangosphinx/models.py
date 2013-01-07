@@ -37,6 +37,9 @@ class SphinxModelManager(object):
     def create(self, *args, **kwargs):
         return self._get_query_set().create(*args, **kwargs)
 
+    def update(self, **kwargs):
+        return self._get_query_set().update(**kwargs)
+
     def delete(self):
         return self._get_query_set().delete()
 

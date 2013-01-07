@@ -289,11 +289,6 @@ class SphinxQuerySet(object):
     def reset(self):
            return self.__class__(self.model, self.using, index=self._get_index())
 
-    def bulk_create(self, objs):
-        if self.model:
-            pass
-        else:
-            raise NotImplementedError('Non-model RT-index update not supported yet')
 
     def _get_values_for_update(self, obj):
         fields = self._get_index_fields()
@@ -307,8 +302,7 @@ class SphinxQuerySet(object):
 
                 if hasattr(f, 'through'): # ManyToMany
                     # пропускаем пока что...
-                    fields.pop(fields.index(field))
-                    continue
+                    f = [force_unicode(x.pk) for x in f.all()]
                 elif isinstance(f, (str, unicode)):
                     pass
                 elif isinstance(f, (int, long, bool, date, datetime, float, decimal.Decimal)):
@@ -358,6 +352,8 @@ class SphinxQuerySet(object):
                 if isinstance(f, (str, unicode)):
                     query_args.append(f)
                     f_list.append('%s')
+                elif isinstance(f, (list, tuple)):
+                    f_list.append('(%s)' % ','.join(f))
                 else:
                     f_list.append(force_unicode(f))
 
@@ -365,17 +361,20 @@ class SphinxQuerySet(object):
 
         query.append(', '.join(q))
 
-        print query
-        print query_args
+        #print query
+        #print query_args
 
         cursor = self._db.cursor()
         count = cursor.execute(' '.join(query), query_args)
 
         return count
 
+    def update(self, **kwargs):
+        raise NotImplementedError('Update not implemented yet')
+
     def delete(self):
         """
-        Возвращает количество удалённых документов
+        Удаляет из индекса документы, удовлетворяющие условиям filter
         """
 
         assert self._can_modify(),\
@@ -395,15 +394,35 @@ class SphinxQuerySet(object):
         cursor = self._db.cursor()
         cursor.execute(query, self._query_args)
 
+    # misc
+    def keywords(self, text, index=None, hits=None):
+        """\
+        Возвращает генератор со списком ключевых слов
+        для переданного текста\
+        """
+        if index is None:
+            # пока только для одного индекса
+            index = self._indexes[0]
+
+        query = 'CALL KEYWORDS (%s)'
+        q = ['%s', '%s']
+        if hits is not None and hits:
+            q.append('1')
+
+        query = query % ', '.join(q)
+
+        cursor = self._db.cursor()
+        count = cursor.execute(query, [text, index])
+
+        for x in range(0, count):
+            yield cursor.fetchone()
+
+
     def get_query_set(self, model):
         qs = model._default_manager
         if self.using is not None:
             qs = qs.db_manager(self.using)
         return qs.all()
-
-    ## Options
-
-
 
     # Properties
 
