@@ -325,11 +325,11 @@ class TestSphinxQuerySet(TestCase):
         self.assertEqual(None, qs._limit)
         self.assertEqual(None, qs._offset)
 
-        qs.set_limits(100)
+        qs._set_limits(100)
         self.assertEqual(None, qs._limit)
         self.assertEqual(100, qs._offset)
 
-        qs.set_limits(100, 200)
+        qs._set_limits(100, 200)
         self.assertEqual(100, qs._limit)
         self.assertEqual(100, qs._offset)
 

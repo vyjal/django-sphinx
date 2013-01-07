@@ -7,10 +7,10 @@ import re
 
 from threading import local
 
+from django.core.signals import request_finished
 from django.utils.encoding import force_unicode
 
-from djangosphinx.conf import *
-from django.core.signals import request_finished
+from djangosphinx.conf import SEARCHD_SETTINGS
 
 
 class ConnectionError(Exception):

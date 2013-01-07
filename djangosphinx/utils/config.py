@@ -1,14 +1,15 @@
 # coding: utf-8
 
 import django
-from django.conf import settings
-from django.template import Context
 
+
+from django.conf import settings
+from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ImproperlyConfigured
 from django.db import models
 from django.db.models.fields import *
 from django.db.models.fields.related import ForeignKey, ManyToManyField, OneToOneField
-from django.contrib.contenttypes.models import ContentType
-
+from django.template import Context
 from django.template.loader import select_template
 
 from djangosphinx.conf import *
@@ -122,8 +123,9 @@ def generate_config_for_model(model_class, index=None, sphinx_params={}):
     Generates a sample configuration including an index and source for
     the given model which includes all attributes and date fields.
     """
-    return generate_source_for_model(model_class, index, sphinx_params) + "\n\n" + \
-    generate_index_for_model(model_class, index, sphinx_params)
+    return generate_source_for_model(model_class, index, sphinx_params)\
+    #       + "\n\n" + \
+    #generate_index_for_model(model_class, index, sphinx_params)
 
 
 def generate_index_for_model(model_class, index=None, sphinx_params={}):
@@ -135,6 +137,10 @@ def generate_index_for_model(model_class, index=None, sphinx_params={}):
     provided with django-sphinx. Remember, models must be registered with a
     SphinxSearch() manager to be recognized by django-sphinx.\
     """
+    options = model_class.__sphinx_options__
+
+    build_realtime = options.get('realtime', False)
+    build_delta = options.get('delta', False)
 
     t = _get_template('index.conf', index)
 
@@ -146,7 +152,7 @@ def generate_index_for_model(model_class, index=None, sphinx_params={}):
 
     c = Context(params)
 
-    return t.render(c)
+    d = t.render(c)
 
 def _process_options_for_model_fields(options, model_fields, model_class):
     fields = []
@@ -170,9 +176,9 @@ def _process_options_for_model_fields(options, model_fields, model_class):
     stored_fields_list = options.get('stored_fields', [])
 
     stored_fields = [f for f in stored_fields_list if
-                                                            get_sphinx_attr_type_for_field(
-                                                                model_class._meta.get_field(f)
-                                                            ) == 'string']
+                                                        get_sphinx_attr_type_for_field(
+                                                            model_class._meta.get_field(f)
+                                                        ) == 'string']
 
     stored_attrs_list = [f for f in stored_attrs_list if f not in stored_fields]
 
@@ -201,6 +207,7 @@ def _process_options_for_model_fields(options, model_fields, model_class):
 
     # добавляем stored поля в список выбранных, если они там отсутствуют
     [included_fields.append(f) for f in stored_attrs_list if f not in included_fields]
+    [included_fields.append(f) for f in stored_fields if f not in included_fields]
 
     [fields.append(f) for f in model_fields if not hasattr(f.rel, 'to') and f.name in included_fields]
 
@@ -421,30 +428,26 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
     Remember, models must be registered with a SphinxSearch() manager to be
     recognized by django-sphinx.\
     """
+    results = list()
+    options = model_class.__sphinx_options__
 
-    t = _get_template('source.conf', index)
+    build_realtime = options.get('realtime', False)
+    build_delta = options.get('delta', False)
 
-    def _the_tuple(f):
-        return (
-            f.__class__,
-            f.column,
-            getattr(f.rel, 'to', None),
-            f.choices,
-            f.model._meta.db_table,  # Verbose table name
-            '%s_%s' % (f.model._meta.db_table, f.column)  # Alias
-        )
+    if build_realtime and build_delta:
+        raise ImproperlyConfigured('You\'ll have to determine what you want...')
+
+    main_source_template = _get_template('source.conf', index)
+    main_index_template = _get_template('index.conf', index)
 
     content_type = ContentType.objects.get_for_model(model_class)
     model_fields = model_class._meta.fields
-    options = model_class.__sphinx_options__
 
     fields, indexes, stored_attrs, stored_fields = _process_options_for_model_fields(options, model_fields, model_class)
 
     mva_fields = _process_mva_fields_for_model(options, model_class, content_type, indexes)
 
-    #related_fields, join_statements, content_types = _process_related_fields_for_model(options, model_class)
-    #related_stored_attrs = _process_related_attributes_for_model(options, model_class)
-    join_statements = content_types = []
+    content_types = []
 
     related_fields, related_stored_attrs, join_statements = _process_related_fields(fields, options, model_class)
 
@@ -452,7 +455,8 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
     if index is None:
         index = table
 
-    context = get_source_context(
+    # Основной источник данных
+    main_source_context = get_source_context(
         ['table'],
         index,
         fields,
@@ -467,15 +471,70 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
         content_type,
     )
 
-    context.update({
+    main_source_context.update({
         'table_name': table,
         'primary_key': model_class._meta.pk.column,
     })
-    context.update(sphinx_params)
+    main_source_context.update(sphinx_params)
 
-    c = Context(context)
+    msc = Context(main_source_context)
+    main_source_config = main_source_template.render(msc)
+    results.append(main_source_config)
 
-    return t.render(c)
+    # Основной индекс
+    main_index_context = get_index_context(index)
+    main_index_context.update(sphinx_params)
+
+    mic = Context(main_index_context)
+    main_index_config = main_index_template.render(mic)
+    results.append(main_index_config)
+
+    # RealTime-индекс
+
+    if build_realtime:
+        rt_fields = list()
+        rt_stored_strings = stored_attrs.get('string', [])
+        for field in fields:
+            if get_sphinx_attr_type_for_field(field) == 'string' and field.name not in rt_stored_strings:
+                rt_fields.append(field)
+
+        rt_mva = dict()
+        for k, v in mva_fields.iteritems():
+            if v['type'] == 'uint':
+                rt_mva[k] = 'multi'
+            elif v['type'] == 'bigint':
+                rt_mva[k] = 'multi_64'
+            else:
+                raise TypeError('Only `int` and `bigint` types allowed for MVA in RT')
+
+        bool_list = stored_attrs.pop('bool', [])
+        bool_list.extend(related_stored_attrs.pop('bool', []))
+
+        for field in bool_list:
+            stored_attrs.setdefault('uint', []).append(field)
+
+        for t, f_list in related_stored_attrs.iteritems():
+            stored_attrs.setdefault(t, []).extend(f_list)
+
+        rt_index = '%s_rt' % index
+        rt_index_context = DEFAULT_SPHINX_PARAMS
+        rt_index_context.update(dict(
+            index_name=rt_index,
+            rt_fields=rt_fields,
+            rt_attrs=stored_attrs,
+            rt_string_attrs=stored_fields,
+            rt_mva=rt_mva,
+        ))
+
+        rt_index_template = _get_template('realtime/index.conf', index)
+        rtic = Context(rt_index_context)
+        rt_index_config = rt_index_template.render(rtic)
+        results.append(rt_index_config)
+
+    if build_delta:
+        pass
+
+    return '\n\n'.join(results)
 
 # Generate for multiple models (search UNIONs)
 # Похоже, это пока не работает
