@@ -60,7 +60,6 @@ class SphinxQuerySet(object):
         self.using = using
         self.realtime = None
         self._doc_ids = None
-        self._db = conn_handler.connection
 
         self._iter = None
 
@@ -364,7 +363,7 @@ class SphinxQuerySet(object):
         #print query
         #print query_args
 
-        cursor = self._db.cursor()
+        cursor = conn_handler.cursor()
         count = cursor.execute(' '.join(query), query_args)
 
         return count
@@ -391,7 +390,7 @@ class SphinxQuerySet(object):
 
         query = ' '.join(q)
 
-        cursor = self._db.cursor()
+        cursor = conn_handler.cursor()
         cursor.execute(query, self._query_args)
 
     # misc
@@ -411,7 +410,7 @@ class SphinxQuerySet(object):
 
         query = query % ', '.join(q)
 
-        cursor = self._db.cursor()
+        cursor = conn_handler.cursor()
         count = cursor.execute(query, [text, index])
 
         for x in range(0, count):
@@ -468,7 +467,7 @@ class SphinxQuerySet(object):
 
     def _get_data(self):
         if not self._indexes:
-            warnings.warn('Index list is not set. Using all known indices.')
+            #warnings.warn('Index list is not set. Using all known indices.')
             self._indexes = self._parse_indexes(all_indexes())
 
         self._iter = SphinxQuery(self.query_string, self._query_args)
@@ -575,11 +574,12 @@ class SphinxQuerySet(object):
         query = 'CALL SNIPPETS (({0:>s}), \'{1:>s}\', %s {2:>s})'.format(doc_format,
             instance.__sphinx_indexes__[0],
             opts)
-        docs.append(self._query)
+        docs.append(self._query or '')
 
-        #print query
+        #print fields, opts
+        #print query, docs
 
-        c = self._db.cursor()
+        c = conn_handler.cursor()
         count = c.execute(query, docs)
 
         snippets = {}

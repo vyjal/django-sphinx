@@ -4,14 +4,23 @@ __author__ = 'ego'
 
 import MySQLdb
 import re
+import warnings
 
 from threading import local
 
 from django.core.signals import request_finished
 from django.utils.encoding import force_unicode
 
-from djangosphinx.conf import SEARCHD_SETTINGS
+from djangosphinx.conf import SEARCHD_SETTINGS, SPHINX_CELERY_PING, SPHINX_CELERY_PING_TIMEOUT
 
+celery = None
+if SPHINX_CELERY_PING:
+    try:
+        import celery
+        from celery.task import periodic_task
+        from celery.schedules import crontab
+    except ImportError:
+        pass
 
 class ConnectionError(Exception):
    pass
@@ -31,20 +40,40 @@ class ConnectionHandler(object):
 
     connection = property(_connection)
 
+    def cursor(self):
+        return self.connection.cursor()
+
+    def close(self): # закрывает подключение к Sphinx
+        if hasattr(self._connections, 'sphinx_database_connection'):
+            conn = getattr(self._connections, 'sphinx_database_connection')
+
+            conn.close()
+
+            delattr(self._connections, 'sphinx_database_connection')
+
+
 conn_handler = ConnectionHandler()
 
-# закрываем
-def close_connection(**kwargs):
-    conn_handler.connection.close()
+# если установлен celery
+# пингуем сервер Sphinx каждые 2 минуты
+if celery is not None:
+    @periodic_task(run_every=crontab(minute=SPHINX_CELERY_PING_TIMEOUT), ignore_result=True)
+    def ping_sphinx():
+        warnings.warn('ping')
+        conn_handler.connection.ping()
+# если не имеем celery, разрываем подключение
+# по окончании каждого запроса
+else:
+    def close_connection(**kwargs):
+        conn_handler.close()
 
-request_finished.connect(close_connection)
+    request_finished.connect(close_connection)
 
 
 class SphinxQuery(object):
     _arr_regexp = re.compile(r'^([a-z]+)\[(\d+)\]', re.I)
 
     def __init__(self, query=None, args=None):
-        self._db = conn_handler.connection
 
         self._query = query
         self._query_args = args
@@ -104,7 +133,7 @@ class SphinxQuery(object):
         if self._query is None:
             raise Exception
 
-        self.cursor = self._db.cursor()
+        self.cursor = conn_handler.cursor()
         self.cursor.execute(self._query, self._query_args)
 
     def _get_meta(self):
@@ -112,7 +141,7 @@ class SphinxQuery(object):
             self._get_results()
 
         _meta = dict()
-        c = self._db.cursor()
+        c = conn_handler.cursor()
         c.execute('SHOW META')
 
         while True:
