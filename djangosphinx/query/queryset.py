@@ -438,7 +438,7 @@ class SphinxQuerySet(object):
         if self._snippets_string is None:
             opts_list = []
             for k, v in self._snippets_opts.iteritems():
-                opts_list.append("'%s' AS `%s`" % (v, k))
+                opts_list.append("%s AS %s" % (v, k))
 
             if opts_list:
                 self._snippets_string = ', %s' % ', '.join(opts_list)
@@ -529,6 +529,11 @@ class SphinxQuerySet(object):
                         docs[doc_id]['data'].setdefault('fields', {})[field] = doc[fields[field]]
             except StopIteration:
                 self._iter = None
+                if not docs:
+                    self._result_cache = []
+                    return
+
+                #print docs, results
 
                 if self.model is None and len(self._indexes) == 1 and ct is not None:
                     self.model = ContentType.objects.get(pk=ct).model_class()
@@ -571,7 +576,7 @@ class SphinxQuerySet(object):
             opts)
         docs.append(self._query)
 
-        print query
+        #print query
 
         c = self._db.cursor()
         count = c.execute(query, docs)
