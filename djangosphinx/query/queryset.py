@@ -438,7 +438,8 @@ class SphinxQuerySet(object):
         if self._snippets_string is None:
             opts_list = []
             for k, v in self._snippets_opts.iteritems():
-                opts_list.append("%s AS %s" % (v, k))
+                opt = ('\'%s\' AS %s' if isinstance(v, (str, unicode)) else '%s AS %s') % (v, k)
+                opts_list.append(opt)
 
             if opts_list:
                 self._snippets_string = ', %s' % ', '.join(opts_list)
