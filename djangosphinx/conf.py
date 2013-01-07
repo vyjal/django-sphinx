@@ -41,6 +41,9 @@ for k, v in _snip_opts.iteritems():
 
     SPHINX_SNIPPETS_OPTS[k] = v
 
+if 'html_strip_mode' not in SPHINX_SNIPPETS_OPTS:
+    SPHINX_SNIPPETS_OPTS['html_strip_mode'] = 'strip'
+
 _query_opts = getattr(settings, 'SPHINX_QUERY_OPTIONS', {})
 SPHINX_QUERY_OPTS = {}
 for k, v in _query_opts.iteritems():
