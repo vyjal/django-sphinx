@@ -64,10 +64,10 @@ if celery is not None:
 # если не имеем celery, разрываем подключение
 # по окончании каждого запроса
 else:
-    def close_connection(**kwargs):
+    def close_sphinx_connection(**kwargs):
         conn_handler.close()
 
-    request_finished.connect(close_connection)
+    request_finished.connect(close_sphinx_connection)
 
 
 class SphinxQuery(object):
