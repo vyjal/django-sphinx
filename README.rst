@@ -89,7 +89,7 @@ SPHINX_SNIPPETS_OPTS
 
 Глобальные параметры выделения сниппетов в тексте. Могут быть переопределены в дальнейшем.
 Если не задано, используются значения Sphinx по-умолчанию, за исключением параметра ``html_strip_mode``, который установлен в значение **strip** в конфигурации Sphinx.
-Доступные для конфигурирования параметры и их значения по-умолчанию см. в `документации Sphinx<http://sphinxsearch.com/docs/2.0.4/api-func-buildexcerpts.html>`_.
+Доступные для конфигурирования параметры и их значения по-умолчанию см. в `документации Sphinx <http://sphinxsearch.com/docs/2.0.4/api-func-buildexcerpts.html>`_.
 
 SPHINX_QUERY_OPTIONS
 --------------------
@@ -99,7 +99,7 @@ SPHINX_QUERY_OPTIONS
 Глобальные параметры запросов к индексу Sphinx.
 Если не указано или пусто, используются параметры по-умолчанию самого Sphinx.
 Если параметр ``ranker`` не задан явно, используется значение **bm25**. Может быть переопределён.
-Доступные для конфигурирования параметры и их значения по-умолчанию см. `документацию Sphinx<http://sphinxsearch.com/docs/2.0.4/sphinxql-select.html>`_.
+Доступные для конфигурирования параметры и их значения по-умолчанию см. `документацию Sphinx <http://sphinxsearch.com/docs/2.0.4/sphinxql-select.html>`_.
 
 SPHINX_QUERY_LIMIT
 ------------------
@@ -221,7 +221,7 @@ options
 
 realtime
 ^^^^^^^^
-Включает использование `RealTime-индексов<http://sphinxsearch.com/docs/manual-2.0.6.html#rt-indexes>`_. Если включен, доступны методы для работы с RT-индексами.
+Включает использование `RealTime-индексов <http://sphinxsearch.com/docs/manual-2.0.6.html#rt-indexes>`_. Если включен, доступны методы для работы с RT-индексами.
 
 included_fields
 ^^^^^^^^^^^^^^^
@@ -237,7 +237,7 @@ excluded_fields
 
 stored_attributes
 ^^^^^^^^^^^^^^^^^
-`см. документацию<http://sphinxsearch.com/docs/2.0.4/confgroup-source.html>`_, разделы 11.1.17-11.1.25, кроме 11.1.23
+`см. документацию <http://sphinxsearch.com/docs/2.0.4/confgroup-source.html>`_, разделы 11.1.17-11.1.25, кроме 11.1.23
 
 Список полей, которые необходимо проиндексировать как stored attributes.
 Данный список может быть полезен, если требуется индексировать текстовое поле как атрибут документа, но не как full-text.
@@ -245,7 +245,7 @@ stored_attributes
 
 stored_fields
 ^^^^^^^^^^^^^
-`см. документацию<http://sphinxsearch.com/docs/2.0.4/conf-sql-field-string.html>`_
+`см. документацию <http://sphinxsearch.com/docs/2.0.4/conf-sql-field-string.html>`_
 
 Список текстовых полей, которые необходимо проиндексировать и как атрибуты, и как full-text.
 Этот список не требуется дублировать в `included_fields` - его содержимое автоматически будет туда добавлено.
@@ -264,7 +264,7 @@ related_fields
 
 mva_fields
 ^^^^^^^^^^
-`см. документацию<http://sphinxsearch.com/docs/2.0.4/conf-sql-attr-multi.html>`_
+`см. документацию <http://sphinxsearch.com/docs/2.0.4/conf-sql-attr-multi.html>`_
 
 Список MVA-атрибутов.
 
@@ -456,7 +456,7 @@ reset
 create
 ^^^^^^^
 
-`Создаёт документы в индексе<http://sphinxsearch.com/docs/manual-2.0.6.html#sphinxql-insert>`_ на основе переданных объектов, если для SphinxQuerySet задана модель.
+`Создаёт документы в индексе <http://sphinxsearch.com/docs/manual-2.0.6.html#sphinxql-insert>`_ на основе переданных объектов, если для SphinxQuerySet задана модель.
 Принимает в качестве аргумента объект этой модели или QuerySet, содержащий несколько таких объектов.
 Если индекс уже содержит документ, изменения в него не вносятся. Чтобы принудительно обновить документы в индексе, нужно передать в метод второй параметр:
 
@@ -473,7 +473,7 @@ update
 delete
 ^^^^^^^
 
-`Удаляет из индекса документы<http://sphinxsearch.com/docs/manual-2.0.6.html#sphinxql-delete>`_, отобранные с помощью метода `filter`.
+`Удаляет из индекса документы <http://sphinxsearch.com/docs/manual-2.0.6.html#sphinxql-delete>`_, отобранные с помощью метода `filter`.
 Sphinx в данный момент поддерживает только фильтрацию вида {id = value | id IN (val1 [, val2 [, ...]])}
 
 
@@ -483,7 +483,7 @@ Sphinx в данный момент поддерживает только фил
 keywords
 ^^^^^^^^
 
-Возвращает `список ключевых слов<http://sphinxsearch.com/docs/manual-2.0.6.html#sphinxql-call-keywords>`_ из переданного первым аргументом текста согласно настройкам индекса, переданного вторым аргументом.
+Возвращает `список ключевых слов <http://sphinxsearch.com/docs/manual-2.0.6.html#sphinxql-call-keywords>`_ из переданного первым аргументом текста согласно настройкам индекса, переданного вторым аргументом.
 Третий аргумент опционален - позволяет включить так же статистику по ключевым словам в список.
 
 
