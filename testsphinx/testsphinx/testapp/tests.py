@@ -5,6 +5,8 @@ when you run "manage.py test".
 
 Replace this with more appropriate tests for your application.
 """
+from __future__ import unicode_literals
+
 import datetime
 import time
 
@@ -15,6 +17,7 @@ from django.test import TestCase
 from django_any import any_model
 
 from djangosphinx import models as ds
+from djangosphinx.conf import SPHINX_MAX_MATCHES, SPHINX_QUERY_LIMIT
 from djangosphinx.query.queryset import EmptySphinxQuerySet, EMPTY_RESULT_SET
 
 from models import *
@@ -145,21 +148,21 @@ class TestSphinxQuerySet(TestCase):
 
         self.assertDictEqual({}, qs._filters)
 
-        self.assertDictEqual({'field': '`field` = 1'}, qs._process_filters({}, False, field=1))
-        self.assertDictEqual({'field__in': '`field` IN (1,2,3)'}, qs._process_filters({}, False, field__in=[1,2,3]))
-        self.assertDictEqual({'field__gt': '`field` > 1'}, qs._process_filters({}, False, field__gt=1))
-        self.assertDictEqual({'field__gte': '`field` >= 1'}, qs._process_filters({}, False, field__gte=1))
-        self.assertDictEqual({'field__lt': '`field` < 1'}, qs._process_filters({}, False, field__lt=1))
-        self.assertDictEqual({'field__lte': '`field` <= 1'}, qs._process_filters({}, False, field__lte=1))
-        self.assertDictEqual({'field__range': '`field` BETWEEN 1 AND 2'}, qs._process_filters({}, False, field__range=[1,2]))
+        self.assertDictEqual({'field': 'field = 1'}, qs._process_filters({}, False, field=1))
+        self.assertDictEqual({'field': 'field IN (1,2,3)'}, qs._process_filters({}, False, field__in=[1,2,3]))
+        self.assertDictEqual({'field': 'field > 1'}, qs._process_filters({}, False, field__gt=1))
+        self.assertDictEqual({'field': 'field >= 1'}, qs._process_filters({}, False, field__gte=1))
+        self.assertDictEqual({'field': 'field < 1'}, qs._process_filters({}, False, field__lt=1))
+        self.assertDictEqual({'field': 'field <= 1'}, qs._process_filters({}, False, field__lte=1))
+        self.assertDictEqual({'field': 'field BETWEEN 1 AND 2'}, qs._process_filters({}, False, field__range=[1,2]))
 
-        self.assertDictEqual({'field': '`field` != 1'}, qs._process_filters({}, True, field=1))
-        self.assertDictEqual({'field__in': '`field` NOT IN (1,2,3)'}, qs._process_filters({}, True, field__in=[1,2,3]))
-        self.assertDictEqual({'field__gt': '`field` <= 1'}, qs._process_filters({}, True, field__gt=1))
-        self.assertDictEqual({'field__gte': '`field` < 1'}, qs._process_filters({}, True, field__gte=1))
-        self.assertDictEqual({'field__lt': '`field` >= 1'}, qs._process_filters({}, True, field__lt=1))
-        self.assertDictEqual({'field__lte': '`field` > 1'}, qs._process_filters({}, True, field__lte=1))
-        self.assertDictEqual({'field__range': 'NOT `field` BETWEEN 1 AND 2'}, qs._process_filters({}, True, field__range=[1,2]))
+        self.assertDictEqual({'field': 'field != 1'}, qs._process_filters({}, True, field=1))
+        self.assertDictEqual({'field': 'field NOT IN (1,2,3)'}, qs._process_filters({}, True, field__in=[1,2,3]))
+        self.assertDictEqual({'field': 'field <= 1'}, qs._process_filters({}, True, field__gt=1))
+        self.assertDictEqual({'field': 'field < 1'}, qs._process_filters({}, True, field__gte=1))
+        self.assertDictEqual({'field': 'field >= 1'}, qs._process_filters({}, True, field__lt=1))
+        self.assertDictEqual({'field': 'field > 1'}, qs._process_filters({}, True, field__lte=1))
+        self.assertDictEqual({'field': 'NOT field BETWEEN 1 AND 2'}, qs._process_filters({}, True, field__range=[1,2]))
 
         self.assertRaises(ValueError, qs._process_filters, {}, False, field__range=[1])
         self.assertRaises(ValueError, qs._process_filters, {}, False, field__range=[1,2,3])
@@ -171,7 +174,7 @@ class TestSphinxQuerySet(TestCase):
 
         qs1 = qs.filter(field=1)
 
-        self.assertDictEqual({'field': '`field` = 1'}, qs1._filters)
+        self.assertDictEqual({'field': 'field = 1'}, qs1._filters)
         self.assertDictEqual({}, qs._filters)
 
         self._is_cloned(qs, qs1)
@@ -183,7 +186,7 @@ class TestSphinxQuerySet(TestCase):
 
         qs1 = qs.exclude(field=1)
 
-        self.assertDictEqual({'field': '`field` != 1'}, qs1._excludes)
+        self.assertDictEqual({'field': 'field != 1'}, qs1._excludes)
         self.assertDictEqual({}, qs._excludes)
 
         self._is_cloned(qs, qs1)
@@ -285,11 +288,11 @@ class TestSphinxQuerySet(TestCase):
         self.assertEqual('WITHIN GROUP ORDER BY `field1` ASC, `field2` DESC', qs4._group_order_by)
 
     def test_all(self):
-        qs = ds.SphinxQuerySet(maxmatches=12345)
+        qs = ds.SphinxQuerySet(maxmatches=SPHINX_MAX_MATCHES-100)
 
         qs2 = qs.all()
 
-        self.assertEqual(12345, qs2._limit)
+        self.assertEqual(SPHINX_MAX_MATCHES-100, qs2._limit)
         self.assertEqual(None, qs2._offset)
 
         self._is_cloned(qs, qs2)
@@ -307,7 +310,7 @@ class TestSphinxQuerySet(TestCase):
 
         self.assertEqual(qs.model, Search)
         self.assertEqual('somedb', qs.using)
-        self.assertListEqual(['one', 'two'], qs._indexes)
+        #self.assertListEqual(['one', 'two'], qs._indexes)
 
         qs1 = qs.reset()
         self.assertEqual(qs.model, qs1.model)
@@ -322,11 +325,11 @@ class TestSphinxQuerySet(TestCase):
     def test_set_limits(self):
         qs = ds.SphinxQuerySet()
 
-        self.assertEqual(None, qs._limit)
+        self.assertEqual(SPHINX_QUERY_LIMIT, qs._limit)
         self.assertEqual(None, qs._offset)
 
         qs._set_limits(100)
-        self.assertEqual(None, qs._limit)
+        self.assertEqual(SPHINX_QUERY_LIMIT, qs._limit)
         self.assertEqual(100, qs._offset)
 
         qs._set_limits(100, 200)
@@ -349,8 +352,11 @@ class TestSphinxQuerySet(TestCase):
         qs = ds.SphinxQuerySet()
         self.assertEqual('', qs._get_snippets_string())
 
-        qs1 = ds.SphinxQuerySet(snippets_opts={'option':1})
-        self.assertEqual(', \'1\' AS `option`', qs1._get_snippets_string())
+        qs1 = ds.SphinxQuerySet(snippets_options={'option':1})
+        self.assertEqual(', 1 AS option', qs1._get_snippets_string())
+
+        qs1 = ds.SphinxQuerySet(snippets_options={'option':'str'})
+        self.assertEqual(', \'str\' AS option', qs1._get_snippets_string())
 
     def test__get_data(self):
         pass # аналогично не пройдёт без Sphinx
@@ -371,7 +377,7 @@ class TestSphinxQuerySet(TestCase):
 
         _inc_f = obj.__sphinx_options__['included_fields'] # сохраняем значение
         obj.__sphinx_options__['included_fields'] = []
-        qs._fields_cache = {}
+        qs._doc_fields_cache = {}
 
         self.assertEqual(exc_fields, qs._get_doc_fields(obj))
         obj.__sphinx_options__['included_fields'] = _inc_f # возвращаем обратно

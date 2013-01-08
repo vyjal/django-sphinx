@@ -1,10 +1,13 @@
 #coding: utf-8
+from __future__ import unicode_literals
 
 __author__ = 'ego'
 
 import re
 import time
 import warnings
+
+import six
 
 try:
     from collections import OrderedDict
@@ -36,14 +39,13 @@ from djangosphinx.query.query import SphinxQuery, conn_handler
 from djangosphinx.utils.config import get_sphinx_attr_type_for_field
 from djangosphinx.shortcuts import all_indexes
 
-__all__ = ['SearchError', 'SphinxQuerySet',
-           'to_sphinx']
+__all__ = ['SearchError', 'SphinxQuerySet', 'to_sphinx']
 
 def to_sphinx(value):
    "Convert a value into a sphinx query value"
-   if isinstance(value, date) or isinstance(value, datetime):
+   if isinstance(value, (date, datetime)):
        return int(time.mktime(value.timetuple()))
-   elif isinstance(value, decimal.Decimal) or isinstance(value, float):
+   elif isinstance(value, (decimal.Decimal, float)):
        return float(value)
    return int(value)
 
@@ -129,7 +131,7 @@ class SphinxQuerySet(object):
         assert ((not isinstance(k, slice) and (k >= 0))
                 or (isinstance(k, slice) and (k.start is None or k.start >= 0)
                     and (k.stop is None or k.stop >= 0))),\
-        "Negative indexing is not supported."
+                        "Negative indexing is not supported."
 
         # no cache now
         if self._result_cache is not None:
@@ -304,9 +306,9 @@ class SphinxQuerySet(object):
                 if hasattr(f, 'through'): # ManyToMany
                     # пропускаем пока что...
                     f = [force_unicode(x.pk) for x in f.all()]
-                elif isinstance(f, (str, unicode)):
+                elif isinstance(f, six.string_types):
                     pass
-                elif isinstance(f, (int, long, bool, date, datetime, float, decimal.Decimal)):
+                elif isinstance(f, six.integer_types) or isinstance(f, (bool, date, datetime, float, decimal.Decimal)):
                     f = to_sphinx(f)
                 else:
                     model_filed = obj._meta.get_field(field)
@@ -350,7 +352,7 @@ class SphinxQuerySet(object):
         for v in values:
             f_list = []
             for f in v:
-                if isinstance(f, (str, unicode)):
+                if isinstance(f, six.string_types):
                     query_args.append(f)
                     f_list.append('%s')
                 elif isinstance(f, (list, tuple)):
@@ -439,7 +441,7 @@ class SphinxQuerySet(object):
         if self._snippets_string is None:
             opts_list = []
             for k, v in self._snippets_opts.iteritems():
-                opt = ('\'%s\' AS %s' if isinstance(v, (str, unicode)) else '%s AS %s') % (v, k)
+                opt = ('\'%s\' AS %s' if isinstance(v, six.string_types) else '%s AS %s') % (v, k)
                 opts_list.append(opt)
 
             if opts_list:
@@ -578,11 +580,8 @@ class SphinxQuerySet(object):
             opts)
         docs.append(self._query or '')
 
-        #print fields, opts
-        #print query, docs
-
         c = conn_handler.cursor()
-        count = c.execute(query, docs)
+        c.execute(query, docs)
 
         snippets = {}
         for field in fields:
@@ -626,13 +625,9 @@ class SphinxQuerySet(object):
 
     def _get_index_fields(self):
         if self._index_fields_cache is None:
-            def _get_field(name):
-                return self.model._meta.get_field(name)
-
             opts = self.model.__sphinx_options__
 
             excluded = opts.get('excluded_fields', [])
-
 
             fields = []
             for f in ['included_fields', 'stored_attributes',
@@ -650,10 +645,19 @@ class SphinxQuerySet(object):
 
     ## Documents
     def _decode_document_id(self, doc_id):
-        assert isinstance(doc_id, (int, long))
+        """\
+        Декодирует ID документа, полученного от Sphinx
+
+        :param doc_id: ID документа
+        :type doc_id: long
+
+        :returns: tuple(ContentTypeID, ObjectID)
+        :rtype: tuple\
+        """
+        assert isinstance(doc_id, six.integer_types)
 
         ct = (doc_id & CONTENT_TYPE_MASK) >> DOCUMENT_ID_SHIFT
-        return doc_id & OBJECT_ID_MASK, ct
+        return (doc_id & OBJECT_ID_MASK, ct)
 
     def _encode_document_id(self, id):
         if self.model:
@@ -833,7 +837,9 @@ class SphinxQuerySet(object):
 
     ## Clone
     def _clone(self, **kwargs):
-        # Clones the queryset passing any changed args
+        """\
+        Clones the queryset passing any changed args\
+        """
         c = self.__class__()
         c.__dict__.update(self.__dict__.copy())
 

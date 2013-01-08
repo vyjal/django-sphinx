@@ -1,5 +1,4 @@
 # coding: utf-8
-
 """
 Sphinx Search Engine ORM for Django models
 http://www.sphinxsearch.com/
@@ -32,6 +31,8 @@ default settings.py values
     SPHINX_PORT = 3312
 </code>
 """
+from __future__ import unicode_literals
+
 import warnings
 import os.path
 
