@@ -82,15 +82,17 @@ class SphinxQuerySet(object):
 
         self._query_opts = self._format_options(**_q_opts)
 
-        self._limit = kwargs.pop('limit', SPHINX_QUERY_LIMIT)
-        self._offset = None
+
 
         self._result_cache = None
         self._doc_fields_cache = {}
         self._index_fields_cache = None
         self._metadata = None
 
-        self._maxmatches = kwargs.pop('maxmatches', SPHINX_MAX_MATCHES)
+        self._maxmatches = min(kwargs.pop('maxmatches', SPHINX_MAX_MATCHES), SPHINX_MAX_MATCHES)
+
+        self._limit = min(kwargs.pop('limit', SPHINX_QUERY_LIMIT), self._maxmatches)
+        self._offset = None
 
         self._snippets = kwargs.pop('snippets', SPHINX_SNIPPETS)
         self._snippets_opts = kwargs.pop('snippets_options', SPHINX_SNIPPETS_OPTS)

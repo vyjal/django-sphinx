@@ -22,7 +22,7 @@ SPHINX_MAX_MATCHES = int(getattr(settings, 'SPHINX_MAX_MATCHES', 1000))
 
 SEARCHD_SETTINGS = {
     'log_path': getattr(settings, 'SPHINX_LOG_PATH', '/var/log/sphinx/').rstrip('/'),
-    'data_path': getattr(settings, 'SPHINX_DATA_PATH', '/var/data/').rstrip('/'),
+    'data_path': getattr(settings, 'SPHINX_DATA_PATH', '/var/data/sphinx/').rstrip('/'),
     'pid_file': getattr(settings, 'SPHINX_PID_FILE', '/var/run/searchd.pid'),
     'sphinx_host': getattr(settings, 'SPHINX_HOST', '127.0.0.1'),
     'sphinx_port': getattr(settings, 'SPHINX_PORT', 9306),
