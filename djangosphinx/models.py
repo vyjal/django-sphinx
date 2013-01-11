@@ -85,6 +85,9 @@ class SphinxSearch(object):
 
 class Delta(models.Model):
 
+    class Meta:
+        abstract = True
+
     max_doc_id = models.PositiveIntegerField(db_index=True, default=0)
 
     content_type = models.OneToOneField(ContentType)
