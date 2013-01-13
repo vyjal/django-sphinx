@@ -1,14 +1,9 @@
 # coding: utf-8
-from __future__ import unicode_literals
+from __future__ import unicode_literals, absolute_import
 
 import warnings
 
-from django.contrib.contenttypes.models import ContentType
-from django.contrib.contenttypes import generic
-from django.db import models
-
-
-from djangosphinx.query import SphinxQuerySet
+from .query import SphinxQuerySet
 
 
 class SphinxModelManager(object):
@@ -81,10 +76,3 @@ class SphinxSearch(object):
         setattr(model, '__sphinx_options__', self._options)
 
         setattr(model, name, self._sphinx)
-
-
-class Delta(models.Model):
-
-    max_doc_id = models.PositiveIntegerField(db_index=True, default=0)
-
-    content_type = models.OneToOneField(ContentType)

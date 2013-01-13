@@ -5,7 +5,7 @@ when you run "manage.py test".
 
 Replace this with more appropriate tests for your application.
 """
-from __future__ import unicode_literals
+from __future__ import unicode_literals, absolute_import
 
 import datetime
 import time
@@ -20,7 +20,7 @@ from djangosphinx import models as ds
 from djangosphinx.conf import SPHINX_MAX_MATCHES, SPHINX_QUERY_LIMIT
 from djangosphinx.query.queryset import EmptySphinxQuerySet, EMPTY_RESULT_SET
 
-from models import *
+from .models import *
 
 dt = datetime.datetime.now()
 d = datetime.date.today()

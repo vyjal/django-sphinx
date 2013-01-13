@@ -126,7 +126,7 @@ class SphinxQuerySet(object):
         """
         Retrieves an item or slice from the set of results.
         """
-        if not isinstance(k, (slice, int, long)):
+        if not isinstance(k, (slice,) + six.integer_types):
             raise TypeError
         assert ((not isinstance(k, slice) and (k >= 0))
                 or (isinstance(k, slice) and (k.start is None or k.start >= 0)
@@ -169,7 +169,7 @@ class SphinxQuerySet(object):
             qs._set_limits(k, k + 1)
             qs._fill_cache()
             return list(qs)[0]
-        except Exception, e:
+        except Exception as e:
             raise IndexError(e.args)
 
     # Indexes
@@ -663,7 +663,7 @@ class SphinxQuerySet(object):
         if self.model:
             ct = ContentType.objects.get_for_model(self.model)
 
-            id = long(ct.id) << DOCUMENT_ID_SHIFT | id
+            id = int(ct.id) << DOCUMENT_ID_SHIFT | id
 
         return id
 

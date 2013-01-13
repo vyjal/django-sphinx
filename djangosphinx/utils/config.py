@@ -3,13 +3,12 @@ from __future__ import unicode_literals
 
 import django
 
-
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ImproperlyConfigured
 from django.db import models
 from django.db.models.fields import *
-from django.db.models.fields.related import ForeignKey, ManyToManyField, OneToOneField
+from django.db.models.fields.related import ForeignKey, OneToOneField
 from django.template import Context
 from django.template.loader import select_template
 
@@ -119,41 +118,17 @@ def get_sphinx_attr_type_for_field(field):
 
 
 # Generate for single models
-def generate_config_for_model(model_class, index=None, sphinx_params={}):
+def generate_config_for_model(model_class, index=None, sphinx_params=None):
     """
     Generates a sample configuration including an index and source for
     the given model which includes all attributes and date fields.
     """
+    if sphinx_params is None:
+        sphinx_params = dict()
     return generate_source_for_model(model_class, index, sphinx_params)\
     #       + "\n\n" + \
     #generate_index_for_model(model_class, index, sphinx_params)
 
-
-def generate_index_for_model(model_class, index=None, sphinx_params={}):
-    """\
-    Generates an index configuration for a model. Respects template
-    overrides from the user for individual models. Any files in settings
-    that are specified in the format `sphinx/Mymodel.index`
-    will be loaded instead of the default source.conf and index.conf boilerplate
-    provided with django-sphinx. Remember, models must be registered with a
-    SphinxSearch() manager to be recognized by django-sphinx.\
-    """
-    options = model_class.__sphinx_options__
-
-    build_realtime = options.get('realtime', False)
-    build_delta = options.get('delta', False)
-
-    t = _get_template('index.conf', index)
-
-    if index is None:
-        index = model_class._meta.db_table
-
-    params = get_index_context(index)
-    params.update(sphinx_params)
-
-    c = Context(params)
-
-    d = t.render(c)
 
 def _process_options_for_model_fields(options, model_fields, model_class):
     fields = []
@@ -238,7 +213,7 @@ def _process_options_for_model_fields(options, model_fields, model_class):
             attr_type = get_sphinx_attr_type_for_field(field)
             stored_attrs.setdefault(attr_type, []).append(field.column)
 
-    return (fields, indexes, stored_attrs, stored_fields)
+    return fields, indexes, stored_attrs, stored_fields
 
 def _process_mva_fields_for_model(options, model_class, content_type, indexes):
 
@@ -279,7 +254,7 @@ def _process_mva_fields_for_model(options, model_class, content_type, indexes):
                                                               m2m_related_column,
                                                               ),
 
-                            'FROM %s ' % (model_table),
+                            'FROM %s ' % model_table,
                             'INNER JOIN %s ON %s.%s=%s.%s ' % (m2m_table,
 
                                                                m2m_table,
@@ -298,7 +273,7 @@ def _process_mva_fields_for_model(options, model_class, content_type, indexes):
 
     return mvas
 
-def _process_related_fields(fields, options, model_class):
+def _process_related_fields(options, model_class):
     related_field_names = options.get('related_fields', [])
 
     local_table = model_class._meta.db_table
@@ -342,7 +317,6 @@ def _process_related_fields(fields, options, model_class):
             related_field_type = get_sphinx_attr_type_for_field(related_field)
 
             related_column = related_field.column
-            #TODO: проверять существование полей и моделей!!!
 
             if related_table not in join_tables:
                 join_tables.append(related_table)
@@ -365,7 +339,7 @@ def _process_related_fields(fields, options, model_class):
             raise NotImplementedError('Oops... we need to go deeper?')
 
 
-    return (related_fields, related_stored_attrs, join_statements)
+    return related_fields, related_stored_attrs, join_statements
 
 
 def get_source_context(tables, index_name, fields, indexes, mva_fields,
@@ -420,7 +394,7 @@ def get_source_context(tables, index_name, fields, indexes, mva_fields,
     return context
 
 
-def generate_source_for_model(model_class, index=None, sphinx_params={}):
+def generate_source_for_model(model_class, index=None, sphinx_params=None):
     """\
     Generates a source configuration for a model. Respects template
     overrides from the user for individual models. Any files in settings
@@ -429,6 +403,9 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
     Remember, models must be registered with a SphinxSearch() manager to be
     recognized by django-sphinx.\
     """
+    if sphinx_params is None:
+        sphinx_params = dict()
+
     results = list()
     options = model_class.__sphinx_options__
 
@@ -450,7 +427,7 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
 
     content_types = []
 
-    related_fields, related_stored_attrs, join_statements = _process_related_fields(fields, options, model_class)
+    related_fields, related_stored_attrs, join_statements = _process_related_fields(options, model_class)
 
     table = model_class._meta.db_table
     if index is None:
@@ -500,11 +477,11 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
                 rt_fields.append(field)
 
         rt_mva = dict()
-        for k, v in mva_fields.iteritems():
-            if v['type'] == 'uint':
-                rt_mva[k] = 'multi'
-            elif v['type'] == 'bigint':
-                rt_mva[k] = 'multi_64'
+        for key in mva_fields:
+            if mva_fields[key]['type'] == 'uint':
+                rt_mva[key] = 'multi'
+            elif mva_fields[key]['type'] == 'bigint':
+                rt_mva[key] = 'multi_64'
             else:
                 raise TypeError('Only `int` and `bigint` types allowed for MVA in RT')
 
@@ -514,8 +491,8 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
         for field in bool_list:
             stored_attrs.setdefault('uint', []).append(field)
 
-        for t, f_list in related_stored_attrs.iteritems():
-            stored_attrs.setdefault(t, []).extend(f_list)
+        for key in related_stored_attrs:
+            stored_attrs.setdefault(key, []).extend(related_stored_attrs[key])
 
         rt_index = '%s_rt' % index
         rt_index_context = DEFAULT_SPHINX_PARAMS
@@ -540,16 +517,22 @@ def generate_source_for_model(model_class, index=None, sphinx_params={}):
 # Generate for multiple models (search UNIONs)
 # Похоже, это пока не работает
 
-def generate_config_for_models(model_classes, index=None, sphinx_params={}):
+def generate_config_for_models(model_classes, index=None, sphinx_params=None):
     """
     Generates a sample configuration including an index and source for
     the given model which includes all attributes and date fields.
     """
+    if sphinx_params is None:
+        sphinx_params = dict()
+
     return generate_source_for_models(model_classes, index, sphinx_params) + "\n\n" + generate_index_for_models(model_classes, index, sphinx_params)
 
 
-def generate_index_for_models(model_classes, index=None, sphinx_params={}):
+def generate_index_for_models(model_classes, index=None, sphinx_params=None):
     """Generates a source configmration for a model."""
+    if sphinx_params is None:
+        sphinx_params = dict()
+
     t = _get_template('index-multiple.conf', index)
 
     if index is None:
@@ -563,14 +546,17 @@ def generate_index_for_models(model_classes, index=None, sphinx_params={}):
     return t.render(c)
 
 
-def generate_source_for_models(model_classes, index=None, sphinx_params={}):
+def generate_source_for_models(model_classes, index=None, sphinx_params=None):
     """Generates a source configmration for a model."""
+    if sphinx_params is None:
+        sphinx_params = dict()
+
     t = _get_template('source-multiple.conf', index)
 
     # We need to loop through each model and find only the fields that exist *exactly* the
     # same across models.
     def _the_tuple(f):
-        return (f.__class__, f.column, getattr(f.rel, 'to', None), f.choices)
+        return f.__class__, f.column, getattr(f.rel, 'to', None), f.choices
 
     valid_fields = [_the_tuple(f) for f in model_classes[0]._meta.fields if _is_sourcable_field(f)]
     for model_class in model_classes[1:]:
@@ -591,7 +577,10 @@ def generate_source_for_models(model_classes, index=None, sphinx_params={}):
     return t.render(c)
 
 
-def generate_sphinx_config(sphinx_params={}):
+def generate_sphinx_config(sphinx_params=None):
+    if sphinx_params is None:
+        sphinx_params = dict()
+
     t = _get_template('sphinx.conf')
 
     params = get_conf_context()

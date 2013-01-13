@@ -1,10 +1,10 @@
 #coding: utf-8
-from __future__ import unicode_literals
+from __future__ import unicode_literals, absolute_import
 
 __author__ = 'ego'
 
 from django.conf import settings
-from djangosphinx.constants import SNIPPETS_OPTIONS, QUERY_OPTIONS
+from .constants import SNIPPETS_OPTIONS, QUERY_OPTIONS
 
 __all__ = [
     'DOCUMENT_ID_SHIFT', 'CONTENT_TYPE_MASK', 'OBJECT_ID_MASK',

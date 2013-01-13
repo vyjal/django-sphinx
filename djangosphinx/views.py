@@ -1,10 +1,10 @@
 # coding: utf-8
-from __future__ import unicode_literals
+from __future__ import unicode_literals, absolute_import
 
 from django.views.generic import TemplateView
 from django.views.generic.list import ListView
 
-from djangosphinx.shortcuts import sphinx_query
+from .shortcuts import sphinx_query
 
 
 class SearchResultsList(ListView):

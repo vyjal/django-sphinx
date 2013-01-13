@@ -1,5 +1,4 @@
-# coding: utf-8
-
+from __future__ import  unicode_literals
 import itertools
 from optparse import make_option
 
@@ -51,4 +50,4 @@ class Command(BaseCommand):
 
         output.append(generate_sphinx_config())
 
-        print '\n'.join(output)
+        print ('\n'.join(output))

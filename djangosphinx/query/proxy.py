@@ -1,6 +1,11 @@
 # coding: utf-8
 from __future__ import unicode_literals
 
+try:
+    from django.utils.encoding import smart_text
+except ImportError:
+    from django.utils.encoding import smart_unicode as smart_text
+
 __author__ = 'ego'
 
 UNDEFINED = object()
@@ -50,7 +55,7 @@ class SphinxProxy(object):
 
     def __unicode__(self):
         try:
-            return unicode(self._current_object)
+            return smart_text(self._current_object)
         except RuntimeError:
             return repr(self)
 
@@ -99,14 +104,14 @@ class SphinxProxy(object):
 
     __delattr__ = lambda x, n: delattr(x._current_object, n)
     __str__ = lambda x: str(x._current_object)
-    __unicode__ = lambda x: unicode(x._current_object)
+    __unicode__ = lambda x: smart_text(x._current_object)
     __lt__ = lambda x, o: x._current_object < o
     __le__ = lambda x, o: x._current_object <= o
     __eq__ = lambda x, o: x._current_object == o
     __ne__ = lambda x, o: x._current_object != o
     __gt__ = lambda x, o: x._current_object > o
     __ge__ = lambda x, o: x._current_object >= o
-    __cmp__ = lambda x, o: cmp(x._current_object, o)
+    #__cmp__ = lambda x, o: cmp(x._current_object, o)
     __hash__ = lambda x: hash(x._current_object)
     # attributes are currently not callable
     # __call__ = lambda x, *a, **kw: x._current_object(*a, **kw)
@@ -135,7 +140,7 @@ class SphinxProxy(object):
     __invert__ = lambda x: ~(x._current_object)
     __complex__ = lambda x: complex(x._current_object)
     __int__ = lambda x: int(x._current_object)
-    __long__ = lambda x: long(x._current_object)
+    #__long__ = lambda x: long(x._current_object)
     __float__ = lambda x: float(x._current_object)
     __oct__ = lambda x: oct(x._current_object)
     __hex__ = lambda x: hex(x._current_object)
