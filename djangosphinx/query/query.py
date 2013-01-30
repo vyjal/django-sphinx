@@ -118,7 +118,7 @@ class SphinxQuery(object):
             raise Exception
 
         if SPHINX_ESCAPE_FIELD_SEARCH_OPERATOR:
-            self._query = re.sub(r"(@)", r"\\\1", self._query)
+            self._query_args = [re.sub(r"(@)", r"\\\1", arg) for arg in self._query_args]
 
         self.cursor = conn_handler.cursor()
         self.cursor.execute(self._query, self._query_args)
