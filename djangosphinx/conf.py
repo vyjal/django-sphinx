@@ -59,10 +59,3 @@ for k, v in _query_opts.iteritems():
 SPHINX_QUERY_LIMIT = getattr(settings, 'SPHINX_QUERY_LIMIT', 20)
 
 assert(SPHINX_QUERY_LIMIT < SPHINX_MAX_MATCHES)
-
-# использовать Celery для пинга SphinxQL-сервера, если Celery доступен
-SPHINX_CELERY_PING=getattr(settings, 'SPHINX_CELERY_PING', True)
-
-# таймаут пинга в минутах
-_timeout = int(getattr(settings, 'SPHINX_CELERY_PING_TIMEOUT', 2))
-SPHINX_CELERY_PING_TIMEOUT='*/%i' % _timeout

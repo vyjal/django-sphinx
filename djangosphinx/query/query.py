@@ -12,16 +12,7 @@ from threading import local
 from django.core.signals import request_finished
 from django.utils.encoding import force_unicode
 
-from djangosphinx.conf import SEARCHD_SETTINGS, SPHINX_CELERY_PING, SPHINX_CELERY_PING_TIMEOUT
-
-celery = None
-if SPHINX_CELERY_PING:
-    try:
-        import celery
-        from celery.task import periodic_task
-        from celery.schedules import crontab
-    except ImportError:
-        pass
+from djangosphinx.conf import SEARCHD_SETTINGS
 
 class ConnectionError(Exception):
    pass
@@ -55,20 +46,11 @@ class ConnectionHandler(object):
 
 conn_handler = ConnectionHandler()
 
-# если установлен celery
-# пингуем сервер Sphinx каждые 2 минуты
-if celery is not None:
-    @periodic_task(run_every=crontab(minute=SPHINX_CELERY_PING_TIMEOUT), ignore_result=True)
-    def ping_sphinx():
-        warnings.warn('ping')
-        conn_handler.connection.ping()
-# если не имеем celery, разрываем подключение
-# по окончании каждого запроса
-else:
-    def close_sphinx_connection(**kwargs):
-        conn_handler.close()
 
-    request_finished.connect(close_sphinx_connection)
+def close_sphinx_connection(**kwargs):
+    conn_handler.close()
+
+request_finished.connect(close_sphinx_connection)
 
 
 class SphinxQuery(object):
