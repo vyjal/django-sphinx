@@ -12,11 +12,13 @@ __all__ = [
     'SPHINX_MAX_MATCHES',
     'SPHINX_QUERY_OPTS', 'SPHINX_QUERY_LIMIT',
     'SPHINX_SNIPPETS', 'SPHINX_SNIPPETS_OPTS',
+    'SPHINX_ESCAPE_FIELD_SEARCH_OPERATOR',
 ]
 
 DOCUMENT_ID_SHIFT = getattr(settings, 'SPHINX_DOCUMENT_ID_SHIFT', 52)
 CONTENT_TYPE_MASK = (2 ** (64 - DOCUMENT_ID_SHIFT) - 1) << DOCUMENT_ID_SHIFT  # 4095 content types
 OBJECT_ID_MASK = 2 ** DOCUMENT_ID_SHIFT - 1  # 4503599627370495 objects for content type
+SPHINX_ESCAPE_FIELD_SEARCH_OPERATOR = getattr(settings, 'ESCAPE_FIELD_SEARCH_OPERATOR', False)
 
 SPHINX_MAX_MATCHES = int(getattr(settings, 'SPHINX_MAX_MATCHES', 1000))
 
@@ -47,7 +49,7 @@ for k, v in _snip_opts.iteritems():
 
 _query_opts = getattr(settings, 'SPHINX_QUERY_OPTIONS', {})
 SPHINX_QUERY_OPTS = {}
-for k, v in _query_opts.iteritems():
+for k, v in _query_opts.items():
     assert(isinstance(v, QUERY_OPTIONS[k]))
 
     if isinstance(v, bool):

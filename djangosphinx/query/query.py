@@ -12,7 +12,8 @@ from threading import local
 from django.core.signals import request_finished
 from django.utils.encoding import force_unicode
 
-from djangosphinx.conf import SEARCHD_SETTINGS
+from djangosphinx.conf import SEARCHD_SETTINGS, SPHINX_ESCAPE_FIELD_SEARCH_OPERATOR
+
 
 class ConnectionError(Exception):
    pass
@@ -115,6 +116,9 @@ class SphinxQuery(object):
     def _get_results(self):
         if self._query is None:
             raise Exception
+
+        if SPHINX_ESCAPE_FIELD_SEARCH_OPERATOR:
+            self._query = re.sub(r"(@)", r"\\\1", self._query)
 
         self.cursor = conn_handler.cursor()
         self.cursor.execute(self._query, self._query_args)
