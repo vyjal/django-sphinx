@@ -43,10 +43,8 @@ class SphinxModelManager(object):
 class SphinxSearch(object):
     def __init__(self, index=None, using=None, **kwargs):
         # Metadata for things like excluded_fields, included_fields, etc
-        try:
-            self._options = kwargs.pop('options')
-        except:
-            self._options = None
+
+        self._options = kwargs.pop('options', dict())
 
         self._kwargs = kwargs
         self._sphinx = None
