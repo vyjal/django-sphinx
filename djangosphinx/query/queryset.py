@@ -569,16 +569,15 @@ class SphinxQuerySet(object):
 
     ## Snippets
     def _get_snippets(self, instance):
-        fields = self._get_doc_fields(instance)
+        (fields, docs) = zip(*[(f, getattr(instance, f)) for f in self._get_doc_fields(instance) if getattr(instance, f)])
 
-        docs = [getattr(instance, f) for f in fields]
         opts = self._get_snippets_string()
 
         doc_format = ', '.join('%s' for x in range(0, len(fields)))
         query = 'CALL SNIPPETS (({0:>s}), \'{1:>s}\', %s {2:>s})'.format(doc_format,
             instance.__sphinx_indexes__[0],
             opts)
-        docs.append(self._query or '')
+        docs += (self._query or '',)
 
         c = conn_handler.cursor()
         c.execute(query, docs)
