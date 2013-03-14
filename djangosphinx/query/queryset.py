@@ -154,7 +154,7 @@ class SphinxQuerySet(object):
             qs = self._clone()
             start = int(k.start) if k.start is not None else 0
             stop = int(k.stop) if k.stop is not None else None
-            
+
             qs._set_limits(start, stop)
             qs._fill_cache()
             return k.step and list(qs)[::k.step] or qs
@@ -272,7 +272,7 @@ class SphinxQuerySet(object):
         return self
 
     def count(self):
-        return min(self.meta.get('total_found', 0), self._maxmatches)
+        return min(int(self.meta.get('total_found', 0)), self._maxmatches)
 
     # Возвращяет все объекты из индекса. Размер списка ограничен только
     # значением maxmatches
