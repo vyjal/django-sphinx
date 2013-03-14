@@ -455,6 +455,9 @@ class SphinxQuerySet(object):
     def _set_limits(self, start, stop=None):
         if start is not None:
             self._offset = int(start)
+        else:
+            start = 0
+            
         if stop is not None:
             self._limit = stop - start
 
