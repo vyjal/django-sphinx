@@ -152,14 +152,9 @@ class SphinxQuerySet(object):
 
         if isinstance(k, slice):
             qs = self._clone()
-            if k.start is not None:
-                start = int(k.start)
-            else:
-                start = None
-            if k.stop is not None:
-                stop = int(k.stop)
-            else:
-                stop = None
+            start = int(k.start) if k.start is not None else 0
+            stop = int(k.stop) if k.stop is not None else None
+            
             qs._set_limits(start, stop)
             qs._fill_cache()
             return k.step and list(qs)[::k.step] or qs
@@ -457,7 +452,7 @@ class SphinxQuerySet(object):
             self._offset = int(start)
         else:
             start = 0
-            
+
         if stop is not None:
             self._limit = stop - start
 
