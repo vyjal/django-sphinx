@@ -133,23 +133,6 @@ class SphinxQuerySet(object):
                     and (k.stop is None or k.stop >= 0))),\
                         "Negative indexing is not supported."
 
-        # no cache now
-        if self._result_cache is not None:
-            if self._iter is not None:
-                # The result cache has only been partially populated, so we may
-                # need to fill it out a bit more.
-                if isinstance(k, slice):
-                    if k.stop is not None:
-                        # Some people insist on passing in strings here.
-                        bound = int(k.stop)
-                    else:
-                        bound = None
-                else:
-                    bound = k + 1
-                if len(self._result_cache) < bound:
-                    self._fill_cache(bound - len(self._result_cache))
-            return self._result_cache[k]
-
         if isinstance(k, slice):
             qs = self._clone()
             start = int(k.start) if k.start is not None else 0
