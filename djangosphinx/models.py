@@ -3,7 +3,7 @@ from __future__ import unicode_literals, absolute_import
 
 import warnings
 
-from .query import SphinxQuerySet
+from .query import SphinxQuerySet, SearchError
 
 
 class SphinxModelManager(object):

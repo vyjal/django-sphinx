@@ -3,6 +3,7 @@ from __future__ import unicode_literals
 
 __author__ = 'ego'
 
+import MySQLdb
 import re
 import time
 import warnings
@@ -41,17 +42,19 @@ from djangosphinx.shortcuts import all_indexes
 
 __all__ = ['SearchError', 'SphinxQuerySet', 'to_sphinx']
 
+
 def to_sphinx(value):
-   "Convert a value into a sphinx query value"
-   if isinstance(value, (date, datetime)):
+    "Convert a value into a sphinx query value"
+    if isinstance(value, (date, datetime)):
        return int(time.mktime(value.timetuple()))
-   elif isinstance(value, (decimal.Decimal, float)):
+    elif isinstance(value, (decimal.Decimal, float)):
        return float(value)
-   return int(value)
+    return int(value)
 
 
 class SearchError(Exception):
     pass
+
 
 class SphinxQuerySet(object):
 
@@ -84,8 +87,6 @@ class SphinxQuerySet(object):
 
         self._query_opts = self._format_options(**_q_opts)
 
-
-
         self._result_cache = None
         self._doc_fields_cache = {}
         self._index_fields_cache = None
@@ -115,7 +116,10 @@ class SphinxQuerySet(object):
 
     def __iter__(self):
         if self._result_cache is None:
-            self._get_data()
+            try:
+                self._get_data()
+            except MySQLdb.ProgrammingError as e:
+                raise SearchError(e.args)
 
         return iter(self._result_cache)
 
@@ -131,7 +135,7 @@ class SphinxQuerySet(object):
         assert ((not isinstance(k, slice) and (k >= 0))
                 or (isinstance(k, slice) and (k.start is None or k.start >= 0)
                     and (k.stop is None or k.stop >= 0))),\
-                        "Negative indexing is not supported."
+            "Negative indexing is not supported."
 
         if isinstance(k, slice):
             qs = self._clone()
@@ -139,13 +143,13 @@ class SphinxQuerySet(object):
             stop = int(k.stop) if k.stop is not None else None
 
             qs._set_limits(start, stop)
-            qs._fill_cache()
+            #qs._fill_cache()
             return k.step and list(qs)[::k.step] or qs
 
         try:
             qs = self._clone()
             qs._set_limits(k, k + 1)
-            qs._fill_cache()
+            #qs._fill_cache()
             return list(qs)[0]
         except Exception as e:
             raise IndexError(e.args)
@@ -260,16 +264,15 @@ class SphinxQuerySet(object):
     # Возвращяет все объекты из индекса. Размер списка ограничен только
     # значением maxmatches
     def all(self):
-       return self._clone(_limit=self._maxmatches, _offset=None)
+        return self._clone(_limit=self._maxmatches, _offset=None)
 
     def none(self):
-       qs = EmptySphinxQuerySet()
-       qs.__dict__.update(self.__dict__.copy())
-       return qs
+        qs = EmptySphinxQuerySet()
+        qs.__dict__.update(self.__dict__.copy())
+        return qs
 
     def reset(self):
-           return self.__class__(self.model, self.using, index=self._get_index())
-
+        return self.__class__(self.model, self.using, index=self._get_index())
 
     def _get_values_for_update(self, obj):
         fields = self._get_index_fields()
@@ -342,9 +345,6 @@ class SphinxQuerySet(object):
 
         query.append(', '.join(q))
 
-        #print query
-        #print query_args
-
         cursor = conn_handler.cursor()
         count = cursor.execute(' '.join(query), query_args)
 
@@ -397,7 +397,6 @@ class SphinxQuerySet(object):
 
         for x in range(0, count):
             yield cursor.fetchone()
-
 
     def get_query_set(self, model):
         qs = model._default_manager
