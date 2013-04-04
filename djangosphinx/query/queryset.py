@@ -143,13 +143,13 @@ class SphinxQuerySet(object):
             stop = int(k.stop) if k.stop is not None else None
 
             qs._set_limits(start, stop)
-            #qs._fill_cache()
+            qs._get_data()
             return k.step and list(qs)[::k.step] or qs
 
         try:
             qs = self._clone()
             qs._set_limits(k, k + 1)
-            #qs._fill_cache()
+            qs._get_data()
             return list(qs)[0]
         except Exception as e:
             raise IndexError(e.args)
@@ -516,8 +516,6 @@ class SphinxQuerySet(object):
                 if not docs:
                     self._result_cache = []
                     return
-
-                #print docs, results
 
                 if self.model is None and len(self._indexes) == 1 and ct is not None:
                     self.model = ContentType.objects.get(pk=ct).model_class()
