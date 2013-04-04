@@ -5,7 +5,6 @@ __author__ = 'ego'
 
 import MySQLdb
 import re
-import warnings
 
 from threading import local
 
@@ -34,6 +33,11 @@ class ConnectionHandler(object):
     connection = property(_connection)
 
     def cursor(self):
+        try:
+            self.connection.ping()
+        except MySQLdb.OperationalError:
+            self.close()
+
         return self.connection.cursor()
 
     def close(self): # закрывает подключение к Sphinx
@@ -112,10 +116,8 @@ class SphinxQuery(object):
 
         return q
 
-
     def _get_results(self):
-        if self._query is None:
-            raise Exception
+        assert self._query is None, 'Query String is empty'
 
         if SPHINX_ESCAPE_FIELD_SEARCH_OPERATOR:
             self._query_args = [re.sub(r"(@)", r"\\\1", arg) for arg in self._query_args]
