@@ -117,7 +117,7 @@ class SphinxQuery(object):
         return q
 
     def _get_results(self):
-        assert self._query is None, 'Query String is empty'
+        assert self._query is not None, 'Query String is empty'
 
         if SPHINX_ESCAPE_FIELD_SEARCH_OPERATOR:
             self._query_args = [re.sub(r"(@)", r"\\\1", arg) for arg in self._query_args]
