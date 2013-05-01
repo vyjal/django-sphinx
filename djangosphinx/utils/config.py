@@ -18,18 +18,19 @@ __all__ = ('generate_config_for_model', 'generate_config_for_models', 'generate_
 
 DJANGO_MINOR_VERSION = float(".".join([str(django.VERSION[0]), str(django.VERSION[1])]))
 
+
 def _get_database_engine():
     if DJANGO_MINOR_VERSION < 1.2:
-        if settings.DATABASE_ENGINE == 'mysql':
-            return settings.DATABASE_ENGINE
-        elif settings.DATABASE_ENGINE.startswith('postgresql'):
-            return 'pgsql'
+        _engine = settings.DATABASE_ENGINE
     else:
-        if 'mysql' in settings.DATABASES['default']['ENGINE']:
-            return 'mysql'
-        elif 'postgresql' in settings.DATABASES['default']['ENGINE']:
-            return 'pgsql'
-    raise ValueError("Only MySQL and PostgreSQL engines are supported by Sphinx.")
+        _engine = settings.DATABASES['default']['ENGINE']
+
+    if 'mysql' in _engine:
+        return 'mysql'
+    elif 'postgresql' in _engine or 'postgis' in _engine:
+        return 'pgsql'
+
+    raise ValueError("Only MySQL and PostgreSQL, and PostGIS engines are supported by Sphinx.")
 
 
 def _get_template(name, index=None):
@@ -42,6 +43,7 @@ def _get_template(name, index=None):
         paths.insert(0, 'sphinx/%s_' % index)
 
     return select_template(['%s%s' % (path, name) for path in paths])
+
 
 def _is_sourcable_field(field):
     # We can use float fields in 0.98
