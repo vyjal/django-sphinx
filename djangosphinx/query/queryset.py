@@ -535,6 +535,9 @@ class SphinxQuerySet(object):
 
                         for obj in qs:
                             results[ct][obj.pk]['obj'] = obj
+                #clear missing items
+                for pk in [pk for pk, doc in docs.items() if not 'obj' in doc['results']]:
+                    del docs[pk]
 
                 if self._snippets:
                     for doc in docs.values():
