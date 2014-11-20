@@ -20,8 +20,7 @@
 =========
 Настройка
 =========
-  ``pip install django PyMySQL six``
-  ``pip install git+git://github.com/projektai/django-sphinx``
+  ``pip install django PyMySQL six psycopg2 git+git://github.com/projektai/django-sphinx``
 
 Настройка sphinx
 =================
