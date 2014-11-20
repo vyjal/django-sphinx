@@ -36,7 +36,7 @@ SPHINX_SNIPPETS = bool(getattr(settings, 'SPHINX_SNIPPETS', False))
 _snip_opts = getattr(settings, 'SPHINX_SNIPPETS_OPTIONS', {})
 
 SPHINX_SNIPPETS_OPTS = {}
-for k, v in _snip_opts.iteritems():
+for k, v in _snip_opts.items():
     assert(isinstance(v, SNIPPETS_OPTIONS[k]))
 
     if isinstance(v, bool):

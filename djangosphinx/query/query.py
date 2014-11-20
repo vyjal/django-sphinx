@@ -9,7 +9,11 @@ import re
 from threading import local
 
 from django.core.signals import request_finished
-from django.utils.encoding import force_unicode
+import sys
+if sys.version_info.major < 3:
+   from django.utils.encoding import force_unicode as force_text
+else:
+   from django.utils.encoding import force_text
 
 from djangosphinx.conf import SEARCHD_SETTINGS, SPHINX_ESCAPE_FIELD_SEARCH_OPERATOR
 
@@ -87,7 +91,7 @@ class SphinxQuery(object):
         return row
 
     def query(self, query, args=None):
-        return self._clone(_query=force_unicode(query), _query_args=args)
+        return self._clone(_query=force_text(query), _query_args=args)
 
     def count(self, ):
         if self._meta is None:

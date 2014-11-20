@@ -3,7 +3,11 @@ from __future__ import unicode_literals
 
 __author__ = 'ego'
 
-import MySQLdb
+try:
+    import pymysql
+    pymysql.install_as_MySQLdb()
+except ImportError:
+    pass
 import re
 import time
 import warnings
@@ -26,7 +30,11 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.db.models.fields.related import RelatedField
 from django.db.models.query import QuerySet
-from django.utils.encoding import force_unicode
+import sys
+if sys.version_info.major < 3:
+    from django.utils.encoding import force_unicode as force_text
+else:
+    from django.utils.encoding import force_text
 
 from djangosphinx.conf import SPHINX_QUERY_OPTS, SPHINX_QUERY_LIMIT, \
     SPHINX_MAX_MATCHES, SPHINX_SNIPPETS, SPHINX_SNIPPETS_OPTS, \
@@ -183,7 +191,7 @@ class SphinxQuerySet(object):
     # Querying
 
     def query(self, query):
-        return self._clone(_query=force_unicode(query))
+        return self._clone(_query=force_text(query))
 
     def filter(self, **kwargs):
         filters = self._filters.copy()
@@ -286,7 +294,7 @@ class SphinxQuerySet(object):
 
                 if hasattr(f, 'through'): # ManyToMany
                     # пропускаем пока что...
-                    f = [force_unicode(x.pk) for x in f.all()]
+                    f = [force_text(x.pk) for x in f.all()]
                 elif isinstance(f, six.string_types):
                     pass
                 elif isinstance(f, six.integer_types) or isinstance(f, (bool, date, datetime, float, decimal.Decimal)):
@@ -339,7 +347,7 @@ class SphinxQuerySet(object):
                 elif isinstance(f, (list, tuple)):
                     f_list.append('(%s)' % ','.join(f))
                 else:
-                    f_list.append(force_unicode(f))
+                    f_list.append(force_text(f))
 
             q.append('(%s)' % ','.join(f_list))
 
