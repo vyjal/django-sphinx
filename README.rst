@@ -13,13 +13,15 @@
 Необходимы следующие пакеты:
 
 - django
-- MySQLdb
+- PyMySQL
 - sphinx, собранный с поддержкой 64-битных идентификаторов
 
 
 =========
 Настройка
 =========
+pip install django PyMySQL six
+pip install git+git://github.com/projektai/django-sphinx
 
 Настройка sphinx
 =================
